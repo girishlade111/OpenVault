@@ -2,7 +2,7 @@
   "id": "FEAT-003",
   "type": "feat",
   "description": "Make the Canvas View work like Obsidian's canvas: infinite canvas with improved node types, proper edge connection system with visible port handles, node resizing from any edge/corner, node content rendering improvements, and overall polish to match Obsidian's canvas UX",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "In src/components/canvas/CanvasView.tsx: Improve the edge connection system. Make the connection port handles always visible when hovering a node (not just when selected). Show 4 circular port indicators (top/bottom/left/right edges) that pulse or highlight on hover to indicate they are draggable. When drawing an edge, highlight valid drop targets (other nodes' ports) so the user knows where they can connect.",
     "In src/components/canvas/CanvasView.tsx: Improve node rendering in CanvasNodeView. Add a proper header/title bar area to each card with a drag handle icon. Show the node type icon (text icon for text cards, file icon for note cards). Add a subtle shadow and better border styling that matches Obsidian's cards. When a node has a color, make the entire card have a tinted background rather than just a thin strip at the top.",
@@ -25,5 +25,5 @@
     "Run: cd /projects/sandbox/OpenVault && bunx --bun tsc --noEmit 2>&1 | grep -v examples/"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "All acceptance criteria met. Edge connection handles now render outside the selected block and are visible on any hovered node. Multi-directional resize implemented with 8 handles (4 corners + 4 edges) using dx/dy position offsets for top/left handles to keep the opposite edge fixed. Minimap renders in bottom-left corner showing proportional node rectangles and viewport rectangle with click-to-navigate. Node styling improved with type icons (Type/FileText), color-mix background tinting, rounded-lg borders, and better shadows. zoomToFit wired to Maximize button (replaced resetView). TypeScript check only reports pre-existing errors in examples/ dir. ESLint passes with 0 errors."
 }
