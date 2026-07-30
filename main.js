@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 const { app, BrowserWindow, protocol, net } = require('electron');
 const path = require('path');
 const url = require('url');

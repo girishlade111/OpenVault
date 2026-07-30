@@ -15,8 +15,8 @@ export function SettingsModal({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const theme = useThemeStore((s) => s.theme);
-  const setTheme = useThemeStore((s) => s.setTheme);
+  const mode = useThemeStore((s) => s.mode);
+  const setMode = useThemeStore((s) => s.setMode);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -30,7 +30,7 @@ export function SettingsModal({
               Theme
             </Label>
             <div className="col-span-3">
-              <Select value={theme} onValueChange={(val: any) => setTheme(val)}>
+              <Select value={mode} onValueChange={(val: any) => setMode(val)}>
                 <SelectTrigger id="theme">
                   <SelectValue placeholder="Select theme" />
                 </SelectTrigger>

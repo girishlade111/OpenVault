@@ -84,7 +84,7 @@ export function Ribbon({
         <Tooltip>
           <TooltipTrigger asChild>
             <button
-              onClick={openGraphView}
+              onClick={() => openGraphView()}
               className="w-10 h-10 flex items-center justify-center rounded-md text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors"
             >
               <Share2 className="w-5 h-5" />
