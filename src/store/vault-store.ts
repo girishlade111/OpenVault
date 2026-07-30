@@ -346,9 +346,27 @@ export const useVaultStore = create<VaultState>((set, get) => ({
 
   closeVault: () => {
     void clearPersistedRootHandle();
+    // Flush any pending debounced save before resetting state.
     if (saveTimer) {
       clearTimeout(saveTimer);
       saveTimer = null;
+      const s = get();
+      if (s.workspace && s.handle) {
+        const snapshot: WorkspaceSnapshot = {
+          version: 1,
+          workspace: s.workspace,
+          ui: {
+            leftSidebarOpen: s.leftSidebarOpen,
+            rightSidebarOpen: s.rightSidebarOpen,
+            collapsedFolders: s.collapsedFolders,
+          },
+        };
+        void saveWorkspace(
+          s.rootDirHandle,
+          s.handle.kind === "demo",
+          snapshot
+        );
+      }
     }
     set({
       handle: null,

@@ -1,22 +1,30 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-const { app, BrowserWindow, protocol, net } = require('electron');
+const { app, BrowserWindow, protocol, net, ipcMain } = require('electron');
 const path = require('path');
 const url = require('url');
 
 const isDev = !app.isPackaged;
 
 function createWindow() {
-  const mainWindow = new BrowserWindow({
+  const windowOptions = {
     width: 1280,
     height: 800,
-    titleBarStyle: 'hiddenInset',
     icon: path.join(__dirname, 'build/icon.ico'),
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
       webSecurity: false // Necessary for File System Access API in local origins
     }
-  });
+  };
+
+  // Platform-specific frameless window handling
+  if (process.platform === 'darwin') {
+    windowOptions.titleBarStyle = 'hiddenInset';
+  } else {
+    windowOptions.frame = false;
+  }
+
+  const mainWindow = new BrowserWindow(windowOptions);
 
   // Remove the default menu
   mainWindow.setMenuBarVisibility(false);
@@ -29,6 +37,22 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // IPC handlers for custom window controls (Windows/Linux frameless windows)
+  ipcMain.on('window-minimize', (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.minimize();
+  });
+  ipcMain.on('window-maximize', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (win?.isMaximized()) {
+      win.unmaximize();
+    } else {
+      win?.maximize();
+    }
+  });
+  ipcMain.on('window-close', (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.close();
+  });
+
   protocol.handle('app', (req) => {
     let urlObj = new URL(req.url);
     let pathname = decodeURIComponent(urlObj.pathname);
