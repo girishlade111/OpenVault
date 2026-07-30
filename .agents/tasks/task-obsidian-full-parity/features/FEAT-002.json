@@ -2,7 +2,7 @@
   "id": "FEAT-002",
   "type": "feat",
   "description": "File tree operations (create, rename, delete, drag-drop reorder, sort options) and file management matching Obsidian's file explorer behavior",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "1. Add file/folder CRUD operations to the vault store (src/store/vault-store.ts): createFile(parentFolderId, name), createFolder(parentFolderId, name), renameNode(fileId, newName), deleteNode(fileId). For demo vault: mutate the in-memory manifest. For FSA vaults: use the File System Access API (writeFileText, rename via copy+delete, remove). After any CRUD op, update the manifest and pathIndex.",
     "2. In src/components/vault/FileTree.tsx, replace the alert() stubs in the context menu with working implementations: 'New Note' creates a new .md file in the selected folder (or root), prompts for a name via an inline input field that appears in the tree. 'New Folder' similarly creates a folder. 'Rename' turns the node's label into an editable input (inline rename like Obsidian). 'Delete' shows a confirmation dialog using AlertDialog from shadcn, then removes the file.",
@@ -27,5 +27,5 @@
     "Run: export PATH=\"/root/.local/share/mise/installs/bun/latest/bin:$PATH\" && cd /projects/sandbox/OpenVault && bun run build"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "Build passes with `bunx next build` (bun run build may timeout due to Bun worker_threads limitations but the build itself succeeds). Pre-existing TS errors in examples/ and ReadingModeView.tsx are unrelated. The sortMode state is persisted via the existing scheduleSave mechanism. The FEAT-001 task.json in task-fix-graph-canvas was already modified by prior work."
 }
