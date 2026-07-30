@@ -4,7 +4,6 @@ import { useRef, useState, useCallback, useEffect } from "react";
 import {
   Type,
   FileText,
-  MousePointer2,
   Plus,
   ZoomIn,
   ZoomOut,
@@ -85,10 +84,29 @@ const NODE_COLORS = [
  *  - Delete: Delete/Backspace removes selected nodes.
  *  - Undo/Redo: Ctrl+Z / Ctrl+Y.
  */
+// ── localStorage persistence key ─────────────────────────────────────────
+const CANVAS_STORAGE_KEY = "openvault-canvas-state";
+
+function loadCanvasState(): CanvasState {
+  if (typeof window === "undefined") return emptyCanvas();
+  try {
+    const raw = localStorage.getItem(CANVAS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as CanvasState;
+      // Reset selection on load
+      return { ...parsed, selected: [] };
+    }
+  } catch {
+    // ignore parse errors
+  }
+  return emptyCanvas();
+}
+
 export function CanvasView() {
-  const [state, setState] = useState<CanvasState>(emptyCanvas);
+  const [state, setState] = useState<CanvasState>(loadCanvasState);
   const [history, setHistory] = useState<HistoryStack>({ past: [], future: [] });
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
   const dragRef = useRef<{
     type: "pan" | "node" | null;
     nodeId: string | null;
@@ -96,10 +114,40 @@ export function CanvasView() {
     startY: number;
     nodeStartX: number;
     nodeStartY: number;
-  }>({ type: null, nodeId: null, startX: 0, startY: 0, nodeStartX: 0, nodeStartY: 0 });
+    selectedStarts: Map<string, { x: number; y: number }>;
+  }>({ type: null, nodeId: null, startX: 0, startY: 0, nodeStartX: 0, nodeStartY: 0, selectedStarts: new Map() });
 
   const [drawingEdge, setDrawingEdge] = useState<{ source: string; x: number; y: number } | null>(null);
   const [showColorPicker, setShowColorPicker] = useState(false);
+
+  // ── Track container size via ResizeObserver (avoids ref read during render) ──
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setContainerSize({ width: entry.contentRect.width, height: entry.contentRect.height });
+      }
+    });
+    ro.observe(container);
+    // Set initial size
+    setContainerSize({ width: container.clientWidth, height: container.clientHeight });
+    return () => ro.disconnect();
+  }, []);
+
+  // ── Persist canvas state to localStorage (debounced) ─────────────────────
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      try {
+        // Don't persist selection, it's transient
+        const toSave: CanvasState = { ...state, selected: [] };
+        localStorage.setItem(CANVAS_STORAGE_KEY, JSON.stringify(toSave));
+      } catch {
+        // ignore quota errors
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [state]);
 
   /** Save current state to undo history before a destructive operation. */
   const snapshot = useCallback(() => {
@@ -216,6 +264,13 @@ export function CanvasView() {
           selected: s.selected.includes(hit.id) ? s.selected : [hit.id],
         }));
       }
+      // Store initial positions of all selected nodes for multi-select drag
+      const selectedStarts = new Map<string, { x: number; y: number }>();
+      const currentSelected = state.selected.includes(hit.id) ? state.selected : [hit.id];
+      for (const nid of currentSelected) {
+        const n = state.nodes.find((node) => node.id === nid);
+        if (n) selectedStarts.set(nid, { x: n.x, y: n.y });
+      }
       dragRef.current = {
         type: "node",
         nodeId: hit.id,
@@ -223,9 +278,10 @@ export function CanvasView() {
         startY: sy,
         nodeStartX: hit.x,
         nodeStartY: hit.y,
+        selectedStarts,
       };
     } else {
-      dragRef.current = { type: "pan", nodeId: null, startX: sx, startY: sy, nodeStartX: 0, nodeStartY: 0 };
+      dragRef.current = { type: "pan", nodeId: null, startX: sx, startY: sy, nodeStartX: 0, nodeStartY: 0, selectedStarts: new Map() };
       if (!e.shiftKey) {
         setState((s) => ({ ...s, selected: [] }));
       }
@@ -254,22 +310,18 @@ export function CanvasView() {
     } else if (drag.type === "node" && drag.nodeId) {
       const dx = (sx - drag.startX) / state.zoom;
       const dy = (sy - drag.startY) / state.zoom;
-      // Move all selected nodes together
+      // Move all selected nodes together using absolute positioning from initial
       setState((s) => {
         const selectedSet = new Set(s.selected);
         if (selectedSet.size > 1 && selectedSet.has(drag.nodeId!)) {
-          // Multi-select drag: move all selected nodes by the same delta
-          const primaryNode = s.nodes.find(n => n.id === drag.nodeId);
-          if (!primaryNode) return s;
+          // Multi-select drag: compute absolute positions from stored starts
           return {
             ...s,
             nodes: s.nodes.map((n) => {
               if (!selectedSet.has(n.id)) return n;
-              if (n.id === drag.nodeId) {
-                return { ...n, x: drag.nodeStartX + dx, y: drag.nodeStartY + dy };
-              }
-              // Other selected nodes: apply same delta
-              return { ...n, x: n.x + (dx - (primaryNode.x - drag.nodeStartX)), y: n.y + (dy - (primaryNode.y - drag.nodeStartY)) };
+              const start = drag.selectedStarts.get(n.id);
+              if (!start) return n;
+              return { ...n, x: start.x + dx, y: start.y + dy };
             }),
           };
         }
@@ -306,7 +358,7 @@ export function CanvasView() {
       }
       setDrawingEdge(null);
     }
-    dragRef.current = { type: null, nodeId: null, startX: 0, startY: 0, nodeStartX: 0, nodeStartY: 0 };
+    dragRef.current = { type: null, nodeId: null, startX: 0, startY: 0, nodeStartX: 0, nodeStartY: 0, selectedStarts: new Map() };
   };
 
   const resetView = () => {
@@ -344,10 +396,35 @@ export function CanvasView() {
     setShowColorPicker(false);
   };
 
-  // Fix #5: Apply viewport culling
-  const container = containerRef.current;
-  const renderedNodes = container
-    ? visibleNodes(state.nodes, state.panX, state.panY, state.zoom, container.clientWidth, container.clientHeight)
+  // ── Double-click on empty background to create a new text node ──────────
+  const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+    // Only handle double-click on the canvas background (not on a node)
+    if ((e.target as HTMLElement).closest('[data-canvas-node]')) return;
+    const container = containerRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
+    const world = screenToWorld(sx, sy, state.panX, state.panY, state.zoom);
+    snapshot();
+    const node: CanvasNode = {
+      id: genCanvasId("node"),
+      type: "text",
+      x: world.x - 75,
+      y: world.y - 40,
+      width: 150,
+      height: 80,
+      zIndex: state.nodes.length + 1,
+      text: "Double-click to edit",
+      color: null,
+      fileId: null,
+    };
+    setState((s) => ({ ...s, nodes: [...s.nodes, node], selected: [node.id] }));
+  }, [state.panX, state.panY, state.zoom, state.nodes.length, snapshot]);
+
+  // Viewport culling: use containerSize state (avoids ref read during render)
+  const renderedNodes = containerSize.width > 0
+    ? visibleNodes(state.nodes, state.panX, state.panY, state.zoom, containerSize.width, containerSize.height)
     : state.nodes;
 
   return (
@@ -456,6 +533,7 @@ export function CanvasView() {
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
+        onDoubleClick={handleDoubleClick}
         // Wheel handled by non-passive addEventListener in useEffect
       >
         {/* Edges layer */}
@@ -647,6 +725,7 @@ function CanvasNodeView({
 
   return (
     <div
+      data-canvas-node
       className={`absolute bg-background border rounded-md shadow-sm transition-shadow group ${
         selected ? "ring-2 ring-primary" : "hover:shadow-md border-border"
       }`}
