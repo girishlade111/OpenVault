@@ -59,10 +59,10 @@ export interface LayoutOptions {
 }
 
 export const DEFAULT_OPTIONS: LayoutOptions = {
-  charge: 800,
-  linkDistance: 80,
+  charge: 600,
+  linkDistance: 120,
   springStrength: 0.08,
-  gravity: 0.02,
+  gravity: 0.015,
   damping: 0.85,
   maxVelocity: 30,
 };
@@ -70,11 +70,15 @@ export const DEFAULT_OPTIONS: LayoutOptions = {
 /**
  * Build a graph layout from the link index.
  * Nodes are placed in a circle initially (phased by index to avoid overlap).
+ * The layout is pre-stabilized so it opens in a settled state.
+ *
+ * @param skipStabilize If true, skip initial stabilization (caller will stabilize manually).
  */
 export function buildGraphLayout(
   index: LinkIndex,
   labels: Map<FileId, string>,
-  opts: Partial<LayoutOptions> = {}
+  opts: Partial<LayoutOptions> = {},
+  skipStabilize = false
 ): GraphLayout {
   const options = { ...DEFAULT_OPTIONS, ...opts };
   const nodes = new Map<FileId, GraphNode>();
@@ -82,7 +86,7 @@ export function buildGraphLayout(
 
   // Create nodes.
   const fileIds = [...index.metadata.keys()];
-  const radius = Math.max(100, fileIds.length * 8);
+  const radius = Math.max(50, fileIds.length * 5);
   fileIds.forEach((id, i) => {
     const angle = (i / fileIds.length) * Math.PI * 2;
     nodes.set(id, {
@@ -117,7 +121,14 @@ export function buildGraphLayout(
   }
 
   void options;
-  return { nodes, edges };
+  const layout: GraphLayout = { nodes, edges };
+
+  // Pre-stabilize the layout so it opens already settled (not as a circle).
+  if (!skipStabilize) {
+    stabilize(layout, options, 200);
+  }
+
+  return layout;
 }
 
 /**

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect, useRef } from "react";
+import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { useVaultStore, useActiveFileId } from "@/store/vault-store";
 import { useIndexStore } from "@/store/index-store";
 import {
@@ -10,7 +10,6 @@ import {
   tickLayout,
   type GraphLayout,
 } from "@/lib/graph/layout";
-import { cn } from "@/lib/utils";
 
 const LOCAL_DEPTH = 2;
 
@@ -22,6 +21,11 @@ const LOCAL_DEPTH = 2;
  *
  * The mini-canvas is a self-contained renderer (not using GraphCanvas, to keep
  * it lightweight for the sidebar). Physics runs continuously for a smooth feel.
+ *
+ * Supports:
+ *  - Pan (drag background)
+ *  - Zoom (scroll wheel)
+ *  - Node hover + click
  */
 export function LocalGraph() {
   const activeFileId = useActiveFileId();
@@ -34,6 +38,13 @@ export function LocalGraph() {
   const layoutRef = useRef<GraphLayout | null>(null);
   const viewportRef = useRef({ x: 0, y: 0, scale: 1 });
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const dragRef = useRef<{
+    type: "pan" | null;
+    startX: number;
+    startY: number;
+    lastX: number;
+    lastY: number;
+  }>({ type: null, startX: 0, startY: 0, lastX: 0, lastY: 0 });
 
   // Build the local subgraph when the active file or index changes.
   const localData = useMemo(() => {
@@ -61,8 +72,7 @@ export function LocalGraph() {
         [...index.metadata].filter(([id]) => sub.nodeIds.has(id))
       ),
     };
-    void sub.edges;
-    const layout = buildGraphLayout(miniIndex, labels);
+    const layout = buildGraphLayout(miniIndex, labels, {}, true);
     // Center the active node at origin.
     const activeNode = layout.nodes.get(activeFileId);
     if (activeNode) {
@@ -74,13 +84,14 @@ export function LocalGraph() {
     return { layout, nodeIds: sub.nodeIds };
   }, [index, activeFileId, manifest]);
 
-  // Keep layoutRef in sync.
+  // Keep layoutRef in sync and reset viewport when data changes.
   useEffect(() => {
     layoutRef.current = localData?.layout ?? null;
+    viewportRef.current = { x: 0, y: 0, scale: 1 };
   }, [localData]);
 
-  // Render function (hoisted via const before the effect that uses it).
-  const renderMini = () => {
+  // Render function.
+  const renderMini = useCallback(() => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
     const layout = layoutRef.current;
@@ -124,6 +135,12 @@ export function LocalGraph() {
       const isActive = node.id === activeFileId;
       const isHovered = node.id === hoveredId;
 
+      // Glow effect
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, r + 2, 0, Math.PI * 2);
+      ctx.fillStyle = isActive ? "rgba(245, 158, 11, 0.2)" : "hsla(var(--primary) / 0.12)";
+      ctx.fill();
+
       if (isActive) {
         ctx.beginPath();
         ctx.arc(node.x, node.y, r + 3, 0, Math.PI * 2);
@@ -137,8 +154,9 @@ export function LocalGraph() {
       ctx.fill();
 
       if (isHovered || isActive) {
+        const fontSize = Math.max(8, Math.min(11, 10 * vp.scale)) / vp.scale;
         ctx.fillStyle = "hsl(var(--foreground))";
-        ctx.font = `${10 / vp.scale}px sans-serif`;
+        ctx.font = `${fontSize}px sans-serif`;
         ctx.textAlign = "center";
         ctx.textBaseline = "top";
         ctx.fillText(node.label, node.x, node.y + r + 3);
@@ -146,7 +164,7 @@ export function LocalGraph() {
     }
 
     ctx.restore();
-  };
+  }, [activeFileId, hoveredId]);
 
   // Animation loop.
   useEffect(() => {
@@ -164,9 +182,60 @@ export function LocalGraph() {
     return () => {
       running = false;
     };
-  }, [localData, hoveredId, activeFileId]);
+  }, [localData, renderMini]);
+
+  // Non-passive wheel handler for zoom.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const delta = -e.deltaY * 0.001;
+      const vp = viewportRef.current;
+      const newScale = Math.max(0.3, Math.min(4, vp.scale * (1 + delta)));
+      // Zoom toward cursor.
+      const rect = canvas.getBoundingClientRect();
+      const cx = e.clientX - rect.left - rect.width / 2;
+      const cy = e.clientY - rect.top - rect.height / 2;
+      const wx = (cx - vp.x) / vp.scale;
+      const wy = (cy - vp.y) / vp.scale;
+      vp.scale = newScale;
+      vp.x = cx - wx * newScale;
+      vp.y = cy - wy * newScale;
+    };
+    canvas.addEventListener("wheel", handleWheel, { passive: false });
+    return () => canvas.removeEventListener("wheel", handleWheel);
+  }, []);
+
+  // Mouse handlers for pan and interaction.
+  const handleMouseDown = (e: React.MouseEvent) => {
+    const canvas = canvasRef.current;
+    if (!canvas || !layoutRef.current) return;
+
+    // Check if hovering a node - if so, don't start pan
+    if (hoveredId) return;
+
+    dragRef.current = {
+      type: "pan",
+      startX: e.clientX,
+      startY: e.clientY,
+      lastX: e.clientX,
+      lastY: e.clientY,
+    };
+  };
 
   const handleMouseMove = (e: React.MouseEvent) => {
+    if (dragRef.current.type === "pan") {
+      const dx = e.clientX - dragRef.current.lastX;
+      const dy = e.clientY - dragRef.current.lastY;
+      viewportRef.current.x += dx;
+      viewportRef.current.y += dy;
+      dragRef.current.lastX = e.clientX;
+      dragRef.current.lastY = e.clientY;
+      return;
+    }
+
+    // Hover detection
     const canvas = canvasRef.current;
     if (!canvas || !layoutRef.current) return;
     const rect = canvas.getBoundingClientRect();
@@ -179,16 +248,20 @@ export function LocalGraph() {
       const r = 4 + Math.min(node.degree, 6) * 1.2;
       const dx = wx - node.x;
       const dy = wy - node.y;
-      if (dx * dx + dy * dy <= r * r) {
+      if (dx * dx + dy * dy <= (r + 2) * (r + 2)) {
         hit = node.id;
         break;
       }
     }
     setHoveredId(hit);
-    if (canvas) canvas.style.cursor = hit ? "pointer" : "default";
+    if (canvas) canvas.style.cursor = hit ? "pointer" : "grab";
   };
 
-  const handleClick = (e: React.MouseEvent) => {
+  const handleMouseUp = () => {
+    dragRef.current = { type: null, startX: 0, startY: 0, lastX: 0, lastY: 0 };
+  };
+
+  const handleClick = () => {
     if (hoveredId && hoveredId !== activeFileId) {
       openFile(hoveredId);
     }
@@ -209,13 +282,21 @@ export function LocalGraph() {
       <div className="px-3 py-1.5 flex items-center gap-1.5 text-[10px] text-muted-foreground border-b">
         <span>{neighborCount} neighbor{neighborCount !== 1 ? "s" : ""}</span>
         <span>· depth {LOCAL_DEPTH}</span>
+        <span className="ml-auto">Drag to pan · Scroll to zoom</span>
       </div>
       <div ref={containerRef} className="h-48 w-full relative">
         <canvas
           ref={canvasRef}
-          className="absolute inset-0"
+          className="absolute inset-0 cursor-grab"
+          onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
-          onMouseLeave={() => setHoveredId(null)}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={(e) => {
+            handleMouseUp();
+            setHoveredId(null);
+            const canvas = e.currentTarget;
+            canvas.style.cursor = "grab";
+          }}
           onClick={handleClick}
         />
       </div>
