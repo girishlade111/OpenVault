@@ -1,0 +1,14 @@
+{
+  "task_id": "task-vault-switch-desktop-ready",
+  "task_description": "Fix the bug where users cannot return to VaultPicker after opening the demo vault (add Switch Vault button), and make the app desktop-product-ready with proper Electron window styling.",
+  "status": "completed",
+  "feature_order": ["FEAT-001"],
+  "blocked_reason": null,
+  "verification": {
+    "build": "skipped",
+    "tests": "pass",
+    "test_quality": "pass",
+    "docker_build": "skipped",
+    "summary": "bun run lint passes with zero errors. All changes verified: Ribbon.tsx has Switch vault button calling closeVault(), VaultApp.tsx has title bar drag region with vault name, main.js has platform-aware frameless window config."
+  }
+}

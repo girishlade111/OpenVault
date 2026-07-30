@@ -20,5 +20,5 @@
     "Read the modified Ribbon.tsx and confirm it imports closeVault from useVaultStore and has a button calling it"
   ],
   "blocked_reason": null,
-  "findings": "All changes passed lint cleanly. The FolderSync icon from lucide-react was used for the Switch vault button. The title bar drag region uses WebkitAppRegion CSS property which is harmless in browser contexts. Platform-aware window config in main.js correctly branches on process.platform."
+  "findings": "Review v1 fixes applied: (1) Added WindowControls component with min/max/close buttons using IPC to main process for Windows/Linux. (2) Title bar drag region is now conditionally rendered only when running inside Electron (detected via navigator.userAgent). (3) closeVault() now flushes pending debounced workspace save before resetting state to prevent silent data loss. IPC handlers added in main.js for window-minimize, window-maximize, window-close events."
 }

@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-const { app, BrowserWindow, protocol, net } = require('electron');
+const { app, BrowserWindow, protocol, net, ipcMain } = require('electron');
 const path = require('path');
 const url = require('url');
 
@@ -37,6 +37,22 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // IPC handlers for custom window controls (Windows/Linux frameless windows)
+  ipcMain.on('window-minimize', (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.minimize();
+  });
+  ipcMain.on('window-maximize', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (win?.isMaximized()) {
+      win.unmaximize();
+    } else {
+      win?.maximize();
+    }
+  });
+  ipcMain.on('window-close', (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.close();
+  });
+
   protocol.handle('app', (req) => {
     let urlObj = new URL(req.url);
     let pathname = decodeURIComponent(urlObj.pathname);

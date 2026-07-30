@@ -38,6 +38,19 @@ import { getDailyNotePath, DEFAULT_DAILY_CONFIG } from "@/lib/automation/daily-n
 import { useThemeStore } from "@/lib/theme/theme-store";
 import { SettingsModal } from "@/components/settings/SettingsModal";
 import { Ribbon } from "./Ribbon";
+import { WindowControls } from "./WindowControls";
+
+/** Detect whether we are running inside Electron. */
+function isElectron(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return navigator.userAgent.toLowerCase().includes("electron");
+}
+
+/** Detect if the platform is macOS (Darwin) inside Electron. */
+function isMacOS(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return navigator.platform?.toLowerCase().includes("mac") ?? false;
+}
 
 export function VaultApp() {
   const leftOpen = useVaultStore((s) => s.leftSidebarOpen);
@@ -46,6 +59,8 @@ export function VaultApp() {
   const openCanvasView = useVaultStore((s) => s.openCanvasView);
   const vaultName = useVaultStore((s) => s.handle?.name ?? 'OpenVault');
   const initTheme = useThemeStore((s) => s.init);
+  const [electron] = useState(isElectron);
+  const [isMac] = useState(isMacOS);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [snapshotsOpen, setSnapshotsOpen] = useState(false);
@@ -70,15 +85,18 @@ export function VaultApp() {
         onOpenSettings={() => setSettingsOpen(true)}
       />
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Title bar drag region for Electron frameless window (harmless in browsers) */}
-        <div
-          className="h-8 flex items-center px-4 shrink-0 bg-sidebar border-b select-none"
-          style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
-        >
-          <span className="text-xs text-muted-foreground truncate">
-            {vaultName}
-          </span>
-        </div>
+        {/* Title bar drag region for Electron frameless window (only in Electron) */}
+        {electron && (
+          <div
+            className="h-8 flex items-center px-4 shrink-0 bg-sidebar border-b select-none"
+            style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+          >
+            <span className="text-xs text-muted-foreground truncate">
+              {vaultName}
+            </span>
+            {!isMac && <WindowControls />}
+          </div>
+        )}
         <div className="flex-1 min-h-0">
           <ResizablePanelGroup direction="horizontal" autoSaveId="vault-layout">
           {leftOpen && (

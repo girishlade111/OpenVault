@@ -1,0 +1,27 @@
+{
+  "project_type": "Next.js (App Router) + Electron desktop app, local-first markdown notes (Obsidian clone)",
+  "language": "TypeScript / React 19",
+  "build_system": "Bun + Next.js + electron-builder",
+  "test_framework": "eslint only (no unit test framework configured)",
+  "build_command": "bun run build",
+  "test_command": "bun run lint",
+  "verification_instructions": "1. Run bun run lint to check for ESLint errors. 2. Run bun run build to verify Next.js static export succeeds.",
+  "snapshot_or_generated_files": "out/ directory is the Next.js static export (not checked in). No checked-in snapshots.",
+  "setup_instructions": "bun install",
+  "environment_constraints": "OPEN_INTERNET mode. bun run build may be slow/timeout in sandbox (resource limitation). Lint is the primary verification.",
+  "contribution_requirements": "No CONTRIBUTING.md. Standard TypeScript/React patterns. Uses Zustand stores, Shadcn UI components, Lucide icons, Tailwind CSS v4.",
+  "key_patterns": "Zustand store at src/store/vault-store.ts with actions like closeVault(), openPicker(), openDemoVault(). Components in src/components/vault/. Ribbon.tsx is the left vertical toolbar. LeftSidebar.tsx is the file tree panel. StatusBar.tsx is the bottom bar. VaultApp.tsx is the main app shell that composes everything. Tooltips use TooltipProvider from Shadcn. Icons from lucide-react.",
+  "relevant_files": [
+    "src/store/vault-store.ts",
+    "src/components/vault/Ribbon.tsx",
+    "src/components/vault/LeftSidebar.tsx",
+    "src/components/vault/StatusBar.tsx",
+    "src/components/vault/VaultApp.tsx",
+    "src/components/vault/VaultPicker.tsx",
+    "src/app/page.tsx",
+    "main.js",
+    "next.config.ts",
+    "package.json"
+  ],
+  "directory_structure": "src/app/ (Next.js app router pages), src/components/vault/ (vault shell components), src/components/ui/ (Shadcn primitives), src/store/ (Zustand stores), src/lib/ (utilities, vault logic, workspace tree), main.js (Electron entry), next.config.ts (already has output: 'export'), package.json (has electron-builder config in 'build' key)"
+}
