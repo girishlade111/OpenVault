@@ -32,6 +32,7 @@ import { useVaultWatcher } from "./useVaultWatcher";
 import { useIndexBridge } from "@/lib/index/use-index-bridge";
 import { useBuiltinCommands } from "@/lib/automation/use-builtin-commands";
 import { CommandPalette } from "@/components/automation/CommandPalette";
+import { QuickSwitcher } from "@/components/automation/QuickSwitcher";
 import { SnapshotBrowser } from "@/components/history/SnapshotBrowser";
 import { getDailyNotePath, DEFAULT_DAILY_CONFIG } from "@/lib/automation/daily-notes";
 import { useThemeStore } from "@/lib/theme/theme-store";
@@ -45,12 +46,14 @@ export function VaultApp() {
   const openCanvasView = useVaultStore((s) => s.openCanvasView);
   const initTheme = useThemeStore((s) => s.init);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [switcherOpen, setSwitcherOpen] = useState(false);
   const [snapshotsOpen, setSnapshotsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const togglePalette = useCallback(() => setPaletteOpen((v) => !v), []);
+  const toggleSwitcher = useCallback(() => setSwitcherOpen((v) => !v), []);
   useVaultWatcher();
   useIndexBridge();
-  useBuiltinCommands(togglePalette);
+  useBuiltinCommands(togglePalette, toggleSwitcher);
 
   // Initialize theme on mount.
   useEffect(() => {
@@ -112,6 +115,7 @@ export function VaultApp() {
         <StatusBar />
       </div>
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+      <QuickSwitcher open={switcherOpen} onOpenChange={setSwitcherOpen} />
       <SnapshotBrowser open={snapshotsOpen} onOpenChange={setSnapshotsOpen} />
       <SettingsModal open={settingsOpen} onOpenChange={setSettingsOpen} />
     </div>

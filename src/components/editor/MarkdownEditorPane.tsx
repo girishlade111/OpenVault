@@ -12,6 +12,7 @@ import { PropertiesPanel } from "./PropertiesPanel";
 import { HoverPreview } from "@/components/automation/HoverPreview";
 import { FootnotePopover } from "./FootnotePopover";
 import { saveSnapshot } from "@/lib/history/snapshots";
+import { setActiveEditorRef } from "@/store/editor-ref-store";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -134,6 +135,16 @@ export function MarkdownEditorPane({ fileId, leafId }: { fileId: FileId; leafId?
       }
     };
   }, []);
+
+  // Register the editor ref so formatting commands can access it.
+  useEffect(() => {
+    if (editorRef.current) {
+      setActiveEditorRef(editorRef.current);
+    }
+    return () => {
+      setActiveEditorRef(null);
+    };
+  }, [loading]);
 
   // Sync external content changes (e.g. Outline panel indent) into the editor,
   // but ONLY if the change didn't originate from the editor itself.

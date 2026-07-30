@@ -143,6 +143,15 @@ interface VaultState {
   // --- actions: content -----------------------------------------------------
   ensureContent: (fileId: FileId) => Promise<string | null>;
   setContent: (fileId: FileId, text: string, dirty?: boolean) => void;
+
+  // --- navigation history ---------------------------------------------------
+  navHistory: FileId[];
+  navIndex: number;
+  navigateBack: () => void;
+  navigateForward: () => void;
+
+  // --- recent files ---------------------------------------------------------
+  recentFiles: FileId[];
 }
 
 // --- debounced workspace persistence ---------------------------------------
@@ -435,13 +444,24 @@ export const useVaultStore = create<VaultState>((set, get) => ({
 
   // --- file/tab ops --------------------------------------------------------
   openFile: (fileId, leafId) => {
-    const { manifest, workspace } = get();
+    const { manifest, workspace, navHistory, navIndex, recentFiles } = get();
     if (!manifest || !workspace) return;
     const node = manifest.nodes[fileId];
     if (!node || node.kind !== "file") return;
     const targetLeaf = leafId ?? workspace.activeLeafId ?? listLeaves(workspace.root)[0]?.id;
     if (!targetLeaf) return;
     applyWorkspace(set, get, (w) => openFileInLeaf(w, targetLeaf, fileId));
+
+    // Update navigation history: truncate forward history, push new entry
+    const truncated = navHistory.slice(0, navIndex + 1);
+    const newHistory = [...truncated, fileId];
+    // Keep max 100 entries
+    const trimmedHistory = newHistory.length > 100 ? newHistory.slice(-100) : newHistory;
+    set({ navHistory: trimmedHistory, navIndex: trimmedHistory.length - 1 });
+
+    // Update recent files: move to front, keep last 20
+    const newRecent = [fileId, ...recentFiles.filter((id) => id !== fileId)].slice(0, 20);
+    set({ recentFiles: newRecent });
   },
 
   openFileInLeaf: (leafId, fileId) => {
@@ -483,6 +503,41 @@ export const useVaultStore = create<VaultState>((set, get) => ({
   // --- file tree CRUD -------------------------------------------------------
   sortMode: "name-asc",
   setSortMode: (mode) => set({ sortMode: mode }),
+
+  // --- navigation history ---------------------------------------------------
+  navHistory: [],
+  navIndex: -1,
+  navigateBack: () => {
+    const { navHistory, navIndex, manifest } = get();
+    if (navIndex <= 0) return;
+    const newIndex = navIndex - 1;
+    const fileId = navHistory[newIndex];
+    if (!fileId || !manifest?.nodes[fileId]) return;
+    set({ navIndex: newIndex });
+    // Open file without pushing to history
+    const { workspace } = get();
+    if (!workspace) return;
+    const targetLeaf = workspace.activeLeafId ?? listLeaves(workspace.root)[0]?.id;
+    if (!targetLeaf) return;
+    applyWorkspace(set, get, (w) => openFileInLeaf(w, targetLeaf, fileId));
+  },
+  navigateForward: () => {
+    const { navHistory, navIndex, manifest } = get();
+    if (navIndex >= navHistory.length - 1) return;
+    const newIndex = navIndex + 1;
+    const fileId = navHistory[newIndex];
+    if (!fileId || !manifest?.nodes[fileId]) return;
+    set({ navIndex: newIndex });
+    // Open file without pushing to history
+    const { workspace } = get();
+    if (!workspace) return;
+    const targetLeaf = workspace.activeLeafId ?? listLeaves(workspace.root)[0]?.id;
+    if (!targetLeaf) return;
+    applyWorkspace(set, get, (w) => openFileInLeaf(w, targetLeaf, fileId));
+  },
+
+  // --- recent files ---------------------------------------------------------
+  recentFiles: [],
 
   createFile: (parentFolderId, name) => {
     const { manifest, handle } = get();

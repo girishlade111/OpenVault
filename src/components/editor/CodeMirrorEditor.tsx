@@ -10,6 +10,14 @@ export interface CodeMirrorHandle {
   setDoc: (text: string) => void;
   /** Get the current document text. */
   getDoc: () => string;
+  /** Get the currently selected text (empty string if no selection). */
+  getSelection: () => string;
+  /** Wrap the current selection with a prefix and suffix (toggle behavior). */
+  wrapSelection: (prefix: string, suffix: string) => void;
+  /** Fold the block at the current cursor position. */
+  foldAtCursor: () => void;
+  /** Unfold the block at the current cursor position. */
+  unfoldAtCursor: () => void;
 }
 
 interface CodeMirrorEditorProps {
@@ -68,6 +76,52 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorHandle, CodeMirrorEditorPro
         });
       },
       getDoc: () => viewRef.current?.state.doc.toString() ?? "",
+      getSelection: () => {
+        const view = viewRef.current;
+        if (!view) return "";
+        const { from, to } = view.state.selection.main;
+        return view.state.sliceDoc(from, to);
+      },
+      wrapSelection: (prefix: string, suffix: string) => {
+        const view = viewRef.current;
+        if (!view) return;
+        const { from, to } = view.state.selection.main;
+        const selected = view.state.sliceDoc(from, to);
+        // Toggle: if already wrapped, unwrap
+        if (
+          selected.startsWith(prefix) &&
+          selected.endsWith(suffix) &&
+          selected.length >= prefix.length + suffix.length
+        ) {
+          const inner = selected.slice(prefix.length, selected.length - suffix.length);
+          view.dispatch({
+            changes: { from, to, insert: inner },
+            selection: { anchor: from, head: from + inner.length },
+          });
+        } else {
+          const wrapped = `${prefix}${selected}${suffix}`;
+          view.dispatch({
+            changes: { from, to, insert: wrapped },
+            selection: { anchor: from + prefix.length, head: from + prefix.length + selected.length },
+          });
+        }
+        view.focus();
+      },
+      foldAtCursor: () => {
+        const view = viewRef.current;
+        if (!view) return;
+        // Use CodeMirror's built-in fold command
+        import("@codemirror/language").then(({ foldCode }) => {
+          foldCode(view);
+        });
+      },
+      unfoldAtCursor: () => {
+        const view = viewRef.current;
+        if (!view) return;
+        import("@codemirror/language").then(({ unfoldCode }) => {
+          unfoldCode(view);
+        });
+      },
     }));
 
     useEffect(() => {
