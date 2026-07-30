@@ -90,14 +90,22 @@ function extractMath(text: string): { from: number; to: number; display: boolean
 }
 
 /** Build the full extension set. */
-export function buildExtensions(opts: { readOnly?: boolean } = {}): Extension[] {
+export function buildExtensions(opts: { readOnly?: boolean; livePreviewEnabled?: boolean; fontSize?: number; showLineNumbers?: boolean; tabSize?: number; lineWidth?: string } = {}): Extension[] {
+  const enableLivePreview = opts.livePreviewEnabled !== false;
+  const fontSize = opts.fontSize ?? 14;
+  const showLines = opts.showLineNumbers !== false;
+  const tabSz = opts.tabSize ?? 2;
+  const lw = opts.lineWidth ?? "medium";
+
+  const maxWidth = lw === "narrow" ? "600px" : lw === "wide" ? "900px" : "760px";
+
   return [
     highlightSpecialChars(),
     history(),
     drawSelection(),
     dropCursor(),
     EditorState.allowMultipleSelections.of(true),
-    indentUnit.of("  "),
+    indentUnit.of(" ".repeat(tabSz)),
     rectangularSelection(),
     crosshairCursor(),
     highlightActiveLine(),
@@ -112,8 +120,7 @@ export function buildExtensions(opts: { readOnly?: boolean } = {}): Extension[] 
       indentWithTab,
     ]),
     closeBrackets(),
-    lineNumbers(),
-    highlightActiveLineGutter(),
+    ...(showLines ? [lineNumbers(), highlightActiveLineGutter()] : []),
     // Markdown language with code-block sub-languages.
     markdown({
       base: markdownLanguage,
@@ -121,17 +128,17 @@ export function buildExtensions(opts: { readOnly?: boolean } = {}): Extension[] 
       addKeymap: true,
     }),
     syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
-    editorTheme(),
-    livePreview(),
+    editorTheme(fontSize, maxWidth),
+    ...(enableLivePreview ? [livePreview(), checkboxWidgets(), imageWidgets()] : []),
     // blockSeparators() — disabled: widget decorations before headings can
     // race with CodeMirror's measurement loop on docs with many headings.
     codeFolding({
-      placeholderText: "…",
+      placeholderText: "\u2026",
     }),
     foldGutter({
       markerDOM: (open) => {
         const el = document.createElement("span");
-        el.textContent = open ? "▾" : "▸";
+        el.textContent = open ? "\u25BE" : "\u25B8";
         el.className = "vault-fold-marker" + (open ? " vault-fold-open" : "");
         el.style.cursor = "pointer";
         el.style.opacity = "0.5";
@@ -166,19 +173,19 @@ export function buildExtensions(opts: { readOnly?: boolean } = {}): Extension[] 
  * --muted, etc.) so the editor automatically matches light/dark mode and the
  * shadcn palette.
  */
-function editorTheme(): Extension {
+function editorTheme(fontSize: number = 14, maxWidth: string = "760px"): Extension {
   return EditorView.theme({
     "&": {
       color: "var(--foreground)",
       backgroundColor: "var(--background)",
       height: "100%",
-      fontSize: "14px",
+      fontSize: `${fontSize}px`,
     },
     ".cm-content": {
       caretColor: "var(--primary)",
       fontFamily: "var(--font-geist-mono), ui-monospace, monospace",
       padding: "16px 24px",
-      maxWidth: "760px",
+      maxWidth,
       margin: "0 auto",
     },
     ".cm-gutters": {
@@ -323,8 +330,8 @@ export function setImeComposing(v: boolean) {
 
 /**
  * Live-preview decorations: mark inline markdown tokens with styled classes.
- * Re-derived on every doc change, but SUPPRESSED during IME composition so
- * the cursor is never disrupted mid-keystroke.
+ * Re-derived on doc change OR viewport change, but only for visible lines.
+ * SUPPRESSED during IME composition so the cursor is never disrupted mid-keystroke.
  */
 function livePreview(): Extension {
   return ViewPlugin.fromClass(
@@ -333,8 +340,8 @@ function livePreview(): Extension {
       constructor(view: EditorView) {
         this.decorations = buildLivePreviewDecorations(view);
       }
-      update(u: { docChanged: boolean; view: EditorView }) {
-        if (u.docChanged && !imeComposing) {
+      update(u: { docChanged: boolean; viewportChanged: boolean; view: EditorView }) {
+        if ((u.docChanged || u.viewportChanged) && !imeComposing) {
           this.decorations = buildLivePreviewDecorations(u.view);
         }
       }
@@ -357,8 +364,19 @@ function buildLivePreviewDecorations(view: EditorView): DecorationSet {
   const tree = syntaxTree(state);
   const decos: DecoEntry[] = [];
 
+  // Only compute decorations for visible ranges (viewport-aware).
+  const visibleRanges = view.visibleRanges;
+  const visibleFrom = visibleRanges.length > 0 ? visibleRanges[0].from : 0;
+  const visibleTo = visibleRanges.length > 0 ? visibleRanges[visibleRanges.length - 1].to : text.length;
+
+  // Helper: check if a range overlaps the visible viewport
+  const isVisible = (from: number, to: number) =>
+    from <= visibleTo && to >= visibleFrom;
+
   // --- Standard markdown syntax (via Lezer tree) ---
   tree.iterate({
+    from: visibleFrom,
+    to: visibleTo,
     enter(node) {
       const name = node.name;
       if (name === "ATXHeading1" || name === "ATXHeading2" || name === "ATXHeading3") {
@@ -394,18 +412,11 @@ function buildLivePreviewDecorations(view: EditorView): DecorationSet {
 
   // --- Custom Obsidian syntax (regex-based, applied to raw text) ---
 
-  // WikiLinks + embeds.
-  for (const link of extractWikiLinks(text)) {
-    decos.push({
-      from: link.from,
-      to: link.to,
-      deco: Decoration.mark({ class: link.embed ? "tok-embed" : "tok-wikilink", attributes: { "data-target": link.noteName } }),
-    });
-  }
-
-  // Tags — skip if inside a code span.
+  // Build code ranges for exclusion (only for visible area).
   const codeRanges: Array<[number, number]> = [];
   tree.iterate({
+    from: visibleFrom,
+    to: visibleTo,
     enter(node) {
       if (node.name === "FencedCode" || node.name === "InlineCode") {
         codeRanges.push([node.from, node.to]);
@@ -415,7 +426,19 @@ function buildLivePreviewDecorations(view: EditorView): DecorationSet {
   const inCode = (from: number, to: number) =>
     codeRanges.some(([cf, ct]) => from >= cf && to <= ct);
 
+  // WikiLinks + embeds.
+  for (const link of extractWikiLinks(text)) {
+    if (!isVisible(link.from, link.to)) continue;
+    decos.push({
+      from: link.from,
+      to: link.to,
+      deco: Decoration.mark({ class: link.embed ? "tok-embed" : "tok-wikilink", attributes: { "data-target": link.noteName } }),
+    });
+  }
+
+  // Tags -- skip if inside a code span.
   for (const tag of extractTags(text)) {
+    if (!isVisible(tag.from, tag.to)) continue;
     if (inCode(tag.from, tag.to)) continue;
     decos.push({
       from: tag.from,
@@ -427,6 +450,7 @@ function buildLivePreviewDecorations(view: EditorView): DecorationSet {
   // Footnote references.
   const { refs: fnRefs } = extractFootnotes(text);
   for (const ref of fnRefs) {
+    if (!isVisible(ref.from, ref.to)) continue;
     if (inCode(ref.from, ref.to)) continue;
     decos.push({
       from: ref.from,
@@ -440,6 +464,7 @@ function buildLivePreviewDecorations(view: EditorView): DecorationSet {
 
   // Math expressions (inline + block).
   for (const math of extractMath(text)) {
+    if (!isVisible(math.from, math.to)) continue;
     decos.push({
       from: math.from,
       to: math.to,
@@ -449,11 +474,12 @@ function buildLivePreviewDecorations(view: EditorView): DecorationSet {
     });
   }
 
-  // Callout header — mark just the `[!type]` badge (single-line, safe).
+  // Callout header -- mark just the `[!type]` badge (single-line, safe).
   const calloutHeaderRe = />\s*\[!([a-zA-Z-]+)\]/g;
   for (const m of text.matchAll(calloutHeaderRe)) {
     const from = m.index! + m[0].indexOf("[");
     const to = m.index! + m[0].length;
+    if (!isVisible(from, to)) continue;
     const type = m[1].toLowerCase();
     decos.push({
       from,
@@ -519,6 +545,238 @@ class BlockSeparatorWidget extends WidgetType {
     el.className = "vault-block-sep";
     return el;
   }
+  ignoreEvent() {
+    return true;
+  }
+}
+
+// --- interactive checkbox widgets ------------------------------------------
+
+/**
+ * Detects `- [ ]` and `- [x]` (or `- [X]`) patterns and renders a clickable
+ * checkbox widget. Clicking toggles between checked/unchecked by dispatching
+ * a CodeMirror transaction.
+ */
+function checkboxWidgets(): Extension {
+  return ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet;
+      constructor(view: EditorView) {
+        this.decorations = buildCheckboxDecorations(view);
+      }
+      update(u: { docChanged: boolean; view: EditorView }) {
+        if (u.docChanged && !imeComposing) {
+          this.decorations = buildCheckboxDecorations(u.view);
+        }
+      }
+    },
+    { decorations: (v) => v.decorations }
+  );
+}
+
+// Regex: matches `- [ ]` or `- [x]` or `- [X]` at line start (with optional leading whitespace)
+const CHECKBOX_RE = /^(\s*- \[)([ xX])(\])/gm;
+
+function buildCheckboxDecorations(view: EditorView): DecorationSet {
+  const text = view.state.doc.toString();
+  const decos: Array<{ from: number; deco: Decoration }> = [];
+
+  for (const m of text.matchAll(CHECKBOX_RE)) {
+    const checked = m[2] !== " ";
+    // Position of the checkbox character (space or x) inside the brackets
+    const charPos = m.index! + m[1].length;
+    // Replace the entire `- [ ]` or `- [x]` portion with a widget
+    const from = m.index! + (m[1].length - 1 - 1); // start of `[`
+    const widgetFrom = m.index! + m[1].length - 1; // `[` position
+    const widgetTo = m.index! + m[1].length + 1 + 1; // after `]`
+
+    decos.push({
+      from: widgetFrom,
+      deco: Decoration.widget({
+        widget: new CheckboxWidget(checked, charPos),
+        side: -1,
+      }),
+    });
+  }
+
+  // Sort by position
+  decos.sort((a, b) => a.from - b.from);
+  return Decoration.set(
+    decos.map((d) => d.deco.range(d.from)),
+    true
+  );
+}
+
+class CheckboxWidget extends WidgetType {
+  constructor(
+    private checked: boolean,
+    private charPos: number
+  ) {
+    super();
+  }
+
+  toDOM(view: EditorView) {
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = this.checked;
+    input.className = "vault-checkbox-widget";
+    input.style.cursor = "pointer";
+    input.style.marginRight = "2px";
+    input.style.verticalAlign = "middle";
+    input.style.accentColor = "var(--primary)";
+
+    const charPos = this.charPos;
+    const checked = this.checked;
+    input.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const newChar = checked ? " " : "x";
+      view.dispatch({
+        changes: { from: charPos, to: charPos + 1, insert: newChar },
+      });
+    });
+
+    return input;
+  }
+
+  eq(other: CheckboxWidget) {
+    return this.checked === other.checked && this.charPos === other.charPos;
+  }
+
+  ignoreEvent() {
+    return false;
+  }
+}
+
+// --- inline image widgets --------------------------------------------------
+
+/**
+ * Detects `![[image.ext]]` and `![alt](url)` patterns and renders an inline
+ * <img> widget below the line. Only renders for image file extensions.
+ */
+function imageWidgets(): Extension {
+  return ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet;
+      constructor(view: EditorView) {
+        this.decorations = buildImageDecorations(view);
+      }
+      update(u: { docChanged: boolean; view: EditorView }) {
+        if (u.docChanged && !imeComposing) {
+          this.decorations = buildImageDecorations(u.view);
+        }
+      }
+    },
+    { decorations: (v) => v.decorations }
+  );
+}
+
+const IMAGE_EXTS = ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"];
+
+// Wiki embed: ![[filename.ext]]
+const WIKI_IMAGE_RE = /!\[\[([^\]\n]+)\]\]/g;
+// Standard markdown image: ![alt](url)
+const MD_IMAGE_RE = /!\[([^\]]*)\]\(([^)\n]+)\)/g;
+
+function buildImageDecorations(view: EditorView): DecorationSet {
+  const text = view.state.doc.toString();
+  const decos: Array<{ from: number; deco: Decoration }> = [];
+
+  // Wiki-style embeds: ![[image.png]]
+  for (const m of text.matchAll(WIKI_IMAGE_RE)) {
+    const target = m[1].trim();
+    const ext = target.split(".").pop()?.toLowerCase() ?? "";
+    if (!IMAGE_EXTS.includes(ext)) continue;
+    const lineEnd = view.state.doc.lineAt(m.index!).to;
+    decos.push({
+      from: lineEnd,
+      deco: Decoration.widget({
+        widget: new ImageWidget(target, true),
+        side: 1,
+        block: true,
+      }),
+    });
+  }
+
+  // Standard markdown images: ![alt](url)
+  for (const m of text.matchAll(MD_IMAGE_RE)) {
+    const url = m[2].trim();
+    // Check if it looks like an image URL
+    const ext = url.split("?")[0].split(".").pop()?.toLowerCase() ?? "";
+    const isDataUrl = url.startsWith("data:image/");
+    const isHttpUrl = url.startsWith("http://") || url.startsWith("https://");
+    if (!IMAGE_EXTS.includes(ext) && !isDataUrl && !isHttpUrl) continue;
+    const lineEnd = view.state.doc.lineAt(m.index!).to;
+    decos.push({
+      from: lineEnd,
+      deco: Decoration.widget({
+        widget: new ImageWidget(url, false),
+        side: 1,
+        block: true,
+      }),
+    });
+  }
+
+  decos.sort((a, b) => a.from - b.from);
+  return Decoration.set(
+    decos.map((d) => d.deco.range(d.from)),
+    true
+  );
+}
+
+class ImageWidget extends WidgetType {
+  constructor(
+    private src: string,
+    private isWikiEmbed: boolean
+  ) {
+    super();
+  }
+
+  toDOM() {
+    const wrapper = document.createElement("div");
+    wrapper.className = "vault-image-widget";
+    wrapper.style.padding = "8px 0";
+    wrapper.style.textAlign = "center";
+
+    const isExternal =
+      this.src.startsWith("http://") ||
+      this.src.startsWith("https://") ||
+      this.src.startsWith("data:image/");
+
+    if (isExternal) {
+      const img = document.createElement("img");
+      img.src = this.src;
+      img.alt = this.src;
+      img.style.maxWidth = "100%";
+      img.style.maxHeight = "400px";
+      img.style.borderRadius = "6px";
+      img.style.border = "1px solid var(--border)";
+      img.loading = "lazy";
+      wrapper.appendChild(img);
+    } else {
+      // Local vault image - show a placeholder since we cannot resolve the
+      // path without file system access in CodeMirror
+      const placeholder = document.createElement("div");
+      placeholder.className = "vault-image-placeholder";
+      placeholder.style.display = "inline-flex";
+      placeholder.style.alignItems = "center";
+      placeholder.style.gap = "6px";
+      placeholder.style.padding = "8px 16px";
+      placeholder.style.borderRadius = "6px";
+      placeholder.style.backgroundColor = "color-mix(in srgb, var(--muted) 50%, transparent)";
+      placeholder.style.color = "var(--muted-foreground)";
+      placeholder.style.fontSize = "13px";
+      placeholder.textContent = `Image: ${this.src}`;
+      wrapper.appendChild(placeholder);
+    }
+
+    return wrapper;
+  }
+
+  eq(other: ImageWidget) {
+    return this.src === other.src && this.isWikiEmbed === other.isWikiEmbed;
+  }
+
   ignoreEvent() {
     return true;
   }

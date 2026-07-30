@@ -66,8 +66,20 @@ const QUOTE_RE = /^(\s*)(>{1,})\s?(.*)$/;
 const FENCE_RE = /^(\s*)(`{3,}|~{3,})(.*)$/;
 const THEMATIC_RE = /^(\s*)(-{3,}|\*{3,}|_{3,})\s*$/;
 
-/** Derive the ordered block list from a document string. */
+/** Cache-one memoization: if the text reference is unchanged, return cached blocks. */
+let _lastText: string | null = null;
+let _lastBlocks: Block[] = [];
+
+/** Derive the ordered block list from a document string (memoized). */
 export function deriveBlocks(text: string): Block[] {
+  if (text === _lastText) return _lastBlocks;
+  _lastText = text;
+  _lastBlocks = deriveBlocksUncached(text);
+  return _lastBlocks;
+}
+
+/** Internal uncached implementation of block derivation. */
+function deriveBlocksUncached(text: string): Block[] {
   const lines = text.split("\n");
   const blocks: Block[] = [];
   let i = 0;

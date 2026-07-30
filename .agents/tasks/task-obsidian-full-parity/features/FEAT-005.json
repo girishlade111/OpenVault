@@ -1,0 +1,31 @@
+{
+  "id": "FEAT-005",
+  "type": "fix",
+  "description": "Code health, performance optimizations, and system architecture improvements to match Obsidian's smooth responsiveness",
+  "status": "completed",
+  "steps": [
+    "1. Optimize the live preview decoration system in src/lib/editor/extensions.ts: instead of rebuilding ALL decorations on every doc change (current O(n) full-text scan), use CodeMirror's viewport-aware approach - only compute decorations for visible lines via ViewPlugin's update.viewportChanged. Use RangeSetBuilder for efficient sorted decoration construction instead of sorting an array.",
+    "2. Add React.memo() and useMemo() optimizations to prevent unnecessary re-renders: (a) Memoize FileTree TreeRow components - only re-render when the node or collapsed state changes. (b) Memoize TabChip components. (c) Use shallow comparison selectors in Zustand subscriptions throughout (the store already does immutable updates, but components may not use narrow selectors).",
+    "3. Debounce the index store's content-change subscription more aggressively for large files (>10KB): increase the debounce from 300ms to 600ms. Also, skip re-indexing entirely if only whitespace changed (no structural content change).",
+    "4. Fix the workspace persistence to handle edge cases: (a) If the workspace.json is corrupted/invalid, fall back to default workspace instead of crashing. (b) Add a version migration path for future workspace format changes. (c) Ensure closedLeaf doesn't leave dangling activeLeafId pointing to a non-existent leaf.",
+    "5. Add proper error boundaries: create a generic ErrorBoundary component that catches React render errors and shows a friendly 'Something went wrong' UI with a 'Reset' button (resets workspace to default). Wrap EditorLeaf, GraphView, CanvasView, and SearchPanel in error boundaries so one panel crashing doesn't take down the whole app.",
+    "6. Fix TypeScript strictness issues: remove the 'any' cast in SettingsModal's Select onValueChange. Add proper type narrowing throughout. Ensure no implicit 'any' types exist in the codebase.",
+    "7. Add a loading/skeleton state for the editor pane: when switching between files, show a subtle skeleton animation instead of a blank flash. Use the existing Skeleton component from shadcn.",
+    "8. Optimize the block derivation (deriveBlocks) used by the outline panel: add memoization so that if the content text reference hasn't changed, return the cached blocks. Use a WeakMap or simple cache-one pattern."
+  ],
+  "acceptance_criteria": [
+    "Live preview decorations only recompute for visible viewport lines",
+    "Error boundaries prevent full-app crashes from component errors",
+    "No TypeScript 'any' casts remain in non-UI component code",
+    "File tree with 100+ nodes renders without visible lag",
+    "Editor mode switch between files shows smooth skeleton transition",
+    "bun run lint passes with zero errors",
+    "bun run build succeeds"
+  ],
+  "verification": [
+    "Run: export PATH=\"/root/.local/share/mise/installs/bun/latest/bin:$PATH\" && cd /projects/sandbox/OpenVault && bun run lint",
+    "Run: export PATH=\"/root/.local/share/mise/installs/bun/latest/bin:$PATH\" && cd /projects/sandbox/OpenVault && bun run build"
+  ],
+  "blocked_reason": null,
+  "findings": "All 8 steps implemented and verified. Lint and build both pass cleanly. The viewport-aware live preview uses view.visibleRanges to limit decoration computation. ErrorBoundary is a class component as required by React. The blocks memoization uses a simple cache-one pattern with module-level variables. Workspace persistence now validates version field, handles corrupted JSON, and fixes dangling activeLeafId references."
+}

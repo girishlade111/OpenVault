@@ -1,0 +1,32 @@
+{
+  "id": "FEAT-004",
+  "type": "feat",
+  "description": "Complete command system, hotkey coverage, Quick Switcher (Ctrl+O), and daily notes workflow matching Obsidian's full command palette and automation",
+  "status": "completed",
+  "steps": [
+    "1. Add a dedicated Quick Switcher dialog (Ctrl+O) separate from the command palette (Ctrl+P). The Quick Switcher is file-only: fuzzy search across all note names, shows recent files first, then ranked matches. Use the cmdk (Command) component with a simpler single-group layout. Create src/components/automation/QuickSwitcher.tsx.",
+    "2. Register all missing Obsidian commands in src/lib/automation/use-builtin-commands.ts: 'editor.toggle-bold' (Mod+B), 'editor.toggle-italic' (Mod+I), 'editor.toggle-strikethrough' (Mod+Shift+X - wraps selection in ~~), 'editor.toggle-code' (Mod+` - wraps in backticks), 'editor.toggle-highlight' (Mod+Shift+H - wraps in ==), 'editor.insert-link' (Mod+K - wraps selection in []()), 'editor.insert-wikilink' (Mod+Shift+K - wraps in [[]]).",
+    "3. Implement the formatting commands: in CodeMirrorEditor, expose an imperative method to get the current selection and dispatch formatting transactions. Add a formatSelection(wrapper) utility that wraps the current selection with the given markdown syntax. Wire this into the command system via a shared ref or event bus.",
+    "4. Add 'Navigate back' (Alt+Left) and 'Navigate forward' (Alt+Right) commands that maintain a navigation history stack. Track file opens in a history array. Going back/forward moves through the history without pushing new entries.",
+    "5. Implement proper daily notes workflow: the 'Open daily note' command (in Ribbon and command palette) should create today's note if it doesn't exist. For the demo vault, add the file to the manifest + content cache + open it. Add a daily note template setting (stored in settings store) with default template including date header and navigation links to previous/next daily notes.",
+    "6. Add 'Open in new pane' command: when triggered, opens the active file in a new split pane to the right. Add 'Close all other tabs' and 'Close tabs to the right' commands matching Obsidian's tab context menu.",
+    "7. Add 'Toggle fold' (Mod+Shift+[/]) commands that fold/unfold the current heading or code block in CodeMirror using the existing fold infrastructure.",
+    "8. Add a 'Recent files' tracking system: store the last 20 opened files in order. Show them in the Quick Switcher (most recent first) and add a 'Recent files' section in the command palette."
+  ],
+  "acceptance_criteria": [
+    "Ctrl+O opens a Quick Switcher that fuzzy-searches file names",
+    "Ctrl+B/I/` wrap selection with bold/italic/code markup",
+    "Alt+Left/Right navigate through file history",
+    "Opening today's daily note creates it if missing (demo vault)",
+    "Quick Switcher shows recent files first",
+    "All new commands appear in the command palette (Ctrl+P)",
+    "bun run lint passes with zero errors",
+    "bun run build succeeds"
+  ],
+  "verification": [
+    "Run: export PATH=\"/root/.local/share/mise/installs/bun/latest/bin:$PATH\" && cd /projects/sandbox/OpenVault && bun run lint",
+    "Run: export PATH=\"/root/.local/share/mise/installs/bun/latest/bin:$PATH\" && cd /projects/sandbox/OpenVault && bun run build"
+  ],
+  "blocked_reason": null,
+  "findings": "All 8 steps implemented successfully. CodeMirror imperative handle extended with getSelection, wrapSelection, foldAtCursor, unfoldAtCursor. Used a simple module-level editor-ref-store (not Zustand) to connect commands to the active editor. Navigation history uses truncate-on-navigate pattern (back/forward without pushing new entries). Daily notes command creates the Daily folder if missing. Build uses dynamic import for @codemirror/language fold functions to avoid circular deps."
+}

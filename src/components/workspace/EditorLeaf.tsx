@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import {
   X,
   Pin,
@@ -22,9 +23,10 @@ import {
 import { MarkdownEditorPane } from "@/components/editor/MarkdownEditorPane";
 import { GraphView } from "@/components/graph/GraphView";
 import { CanvasView } from "@/components/canvas/CanvasView";
+import { ErrorBoundary } from "@/components/common/ErrorBoundary";
 
 /** A single tab chip inside a leaf's tab strip. */
-function TabChip({ leafId, tab }: { leafId: string; tab: EditorTab }) {
+const TabChip = memo(function TabChip({ leafId, tab }: { leafId: string; tab: EditorTab }) {
   const manifest = useVaultStore((s) => s.manifest);
   // Subscribe to this leaf's view so the chip re-renders when activeTabId
   // changes. The leaf node reference is stable across unrelated state changes
@@ -41,6 +43,86 @@ function TabChip({ leafId, tab }: { leafId: string; tab: EditorTab }) {
   if (!node) return null;
   const active = leaf.view.activeTabId === tab.fileId;
 
+  // Drag-drop reorder support
+  const handleDragStart = (e: React.DragEvent) => {
+    e.dataTransfer.setData("text/tab-file-id", tab.fileId);
+    e.dataTransfer.setData("text/tab-leaf-id", leafId);
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    // Show visual insertion indicator
+    const rect = e.currentTarget.getBoundingClientRect();
+    const midX = rect.left + rect.width / 2;
+    const el = e.currentTarget as HTMLElement;
+    if (e.clientX < midX) {
+      el.style.borderLeftColor = "var(--primary)";
+      el.style.borderLeftWidth = "2px";
+      el.style.borderRightColor = "";
+      el.style.borderRightWidth = "";
+    } else {
+      el.style.borderRightColor = "var(--primary)";
+      el.style.borderRightWidth = "2px";
+      el.style.borderLeftColor = "";
+      el.style.borderLeftWidth = "";
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    const el = e.currentTarget as HTMLElement;
+    el.style.borderLeftColor = "";
+    el.style.borderLeftWidth = "";
+    el.style.borderRightColor = "";
+    el.style.borderRightWidth = "";
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const el = e.currentTarget as HTMLElement;
+    el.style.borderLeftColor = "";
+    el.style.borderLeftWidth = "";
+    el.style.borderRightColor = "";
+    el.style.borderRightWidth = "";
+
+    const dragFileId = e.dataTransfer.getData("text/tab-file-id");
+    const dragLeafId = e.dataTransfer.getData("text/tab-leaf-id");
+    if (!dragFileId) return;
+
+    const store = useVaultStore.getState();
+    const ws = store.workspace;
+    if (!ws) return;
+
+    // Determine insertion index based on cursor position
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const midX = rect.left + rect.width / 2;
+    const currentLeaf = findLeafLocal(ws.root, leafId);
+    if (!currentLeaf || currentLeaf.view.kind !== "editor") return;
+    const targetIdx = currentLeaf.view.tabs.findIndex((t) => t.fileId === tab.fileId);
+    const insertIdx = e.clientX < midX ? targetIdx : targetIdx + 1;
+
+    if (dragLeafId === leafId) {
+      // Same leaf: reorder
+      const fromIdx = currentLeaf.view.tabs.findIndex((t) => t.fileId === dragFileId);
+      if (fromIdx !== -1 && fromIdx !== insertIdx) {
+        const adjustedTo = fromIdx < insertIdx ? insertIdx - 1 : insertIdx;
+        store.reorderTabs(leafId, fromIdx, adjustedTo);
+      }
+    } else {
+      // Cross-pane: move tab
+      store.moveTab(dragLeafId, leafId, dragFileId, insertIdx);
+    }
+  };
+
+  // Middle-click to close
+  const handleAuxClick = (e: React.MouseEvent) => {
+    if (e.button === 1) {
+      e.preventDefault();
+      closeTab(leafId, tab.fileId);
+    }
+  };
+
   return (
     <div
       className={cn(
@@ -54,6 +136,12 @@ function TabChip({ leafId, tab }: { leafId: string; tab: EditorTab }) {
         borderBottom: active ? "1px solid var(--background)" : undefined,
       }}
       onClick={() => setActive(leafId, tab.fileId)}
+      onAuxClick={handleAuxClick}
+      draggable
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
       role="tab"
       aria-selected={active}
     >
@@ -91,7 +179,7 @@ function TabChip({ leafId, tab }: { leafId: string; tab: EditorTab }) {
       </Button>
     </div>
   );
-}
+});
 
 function LeafEmptyState({ leafId }: { leafId: string }) {
   const splitLeaf = useVaultStore((s) => s.splitLeaf);
@@ -157,7 +245,7 @@ function LeafContent({ leafId, activeTabId }: { leafId: string; activeTabId: str
         </h1>
       </div>
       {node.isMarkdown ? (
-        <MarkdownEditorPane fileId={node.id} />
+        <MarkdownEditorPane fileId={node.id} leafId={leafId} />
       ) : (
         <div className="flex-1 grid place-items-center p-8 text-sm text-muted-foreground text-center">
           {node.isImage
@@ -194,7 +282,9 @@ export function EditorLeaf({ leaf }: { leaf: LeafNode }) {
       >
         <GraphLeafHeader leafId={leaf.id} />
         <div className="flex-1 min-h-0">
-          <GraphView />
+          <ErrorBoundary label="Graph View">
+            <GraphView />
+          </ErrorBoundary>
         </div>
       </div>
     );
@@ -214,7 +304,9 @@ export function EditorLeaf({ leaf }: { leaf: LeafNode }) {
       >
         <GraphLeafHeader leafId={leaf.id} label="Canvas" />
         <div className="flex-1 min-h-0">
-          <CanvasView />
+          <ErrorBoundary label="Canvas">
+            <CanvasView />
+          </ErrorBoundary>
         </div>
       </div>
     );
@@ -239,6 +331,19 @@ export function EditorLeaf({ leaf }: { leaf: LeafNode }) {
           className="flex items-stretch overflow-x-auto overflow-y-hidden flex-1 min-w-0 no-scrollbar relative"
           role="tablist"
           onMouseDown={() => setActiveLeaf(leaf.id)}
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            const dragFileId = e.dataTransfer.getData("text/tab-file-id");
+            const dragLeafId = e.dataTransfer.getData("text/tab-leaf-id");
+            if (!dragFileId || !dragLeafId || dragLeafId === leaf.id) return;
+            // Dropped on the tab strip (not on a specific tab) - append at end
+            const store = useVaultStore.getState();
+            store.moveTab(dragLeafId, leaf.id, dragFileId);
+          }}
         >
           {tabs.length === 0 ? (
             <div className="flex items-center px-3 text-xs text-muted-foreground italic">
@@ -300,7 +405,9 @@ export function EditorLeaf({ leaf }: { leaf: LeafNode }) {
         </div>
       </div>
       <div className="flex-1 min-h-0">
-        <LeafContent leafId={leaf.id} activeTabId={activeTabId} />
+        <ErrorBoundary label="Editor">
+          <LeafContent leafId={leaf.id} activeTabId={activeTabId} />
+        </ErrorBoundary>
       </div>
     </div>
   );

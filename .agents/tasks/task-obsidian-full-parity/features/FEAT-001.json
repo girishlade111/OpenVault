@@ -1,0 +1,30 @@
+{
+  "id": "FEAT-001",
+  "type": "feat",
+  "description": "Editor view modes (Live Preview / Source / Reading) with toggle, clickable links, interactive checkboxes, and inline image rendering - matching Obsidian's core editor behavior",
+  "status": "completed",
+  "steps": [
+    "1. Add an editor mode state to the vault store or a dedicated editor-settings store. Modes: 'live-preview' (default, current behavior + enhancements), 'source' (plain text, no decorations beyond syntax highlighting), 'reading' (rendered markdown, no editable cursor). Store the mode per-leaf so different panes can be in different modes.",
+    "2. In src/components/editor/MarkdownEditorPane.tsx, add a view mode toggle button in the top-right corner (like Obsidian's pencil/book icon). When toggled to reading mode, render a read-only rendered markdown view using react-markdown (already a dependency). When in source mode, set CodeMirror to show raw markdown with syntax highlighting but disable live-preview decorations.",
+    "3. In src/lib/editor/extensions.ts live preview, add click handling for .tok-wikilink elements: on Ctrl/Cmd+Click, resolve the link and call openFile() from the vault store. This matches Obsidian's 'click to follow link' behavior.",
+    "4. Add interactive checkbox support in live preview mode: detect `- [ ]` and `- [x]` patterns, render them with a clickable checkbox widget decoration in CodeMirror (using WidgetType). Clicking toggles between [ ] and [x] by dispatching a transaction to replace that character.",
+    "5. Add inline image rendering in live preview mode: detect `![[image.png]]` and `![alt](url)` patterns. For local vault images, render them inline using a CodeMirror widget decoration that shows an <img> tag. For the demo vault, show placeholder for local images.",
+    "6. Register the toggle command in use-builtin-commands.ts: 'editor.toggle-mode' with hotkey Mod+E (matches Obsidian's Ctrl+E for toggle edit/preview). Also register Mod+Shift+E for cycling through all three modes.",
+    "7. In the reading mode view, render proper styled markdown with: heading sizing, bold/italic/code styling, rendered links (clickable), rendered images, callout blocks with colored borders, code blocks with syntax highlighting using react-syntax-highlighter (already a dependency), and task lists with checkboxes."
+  ],
+  "acceptance_criteria": [
+    "Ctrl+E toggles between live preview and reading mode",
+    "Reading mode shows fully rendered markdown that is not editable",
+    "Source mode shows raw markdown with syntax highlighting only",
+    "Clicking a wiki-link with Ctrl/Cmd held opens that note in the current pane",
+    "Checkboxes in live preview mode are clickable and toggle the [ ]/[x] in the document",
+    "bun run lint passes with zero errors",
+    "bun run build succeeds"
+  ],
+  "verification": [
+    "Run: export PATH=\"/root/.local/share/mise/installs/bun/latest/bin:$PATH\" && cd /projects/sandbox/OpenVault && bun run lint",
+    "Run: export PATH=\"/root/.local/share/mise/installs/bun/latest/bin:$PATH\" && cd /projects/sandbox/OpenVault && bun run build"
+  ],
+  "blocked_reason": null,
+  "findings": "All steps implemented. Lint and build pass cleanly. The CodeMirror mount-once pattern is preserved - mode switching in live-preview vs source does not remount the editor (extensions are set at creation time). Reading mode uses a separate react-markdown renderer that replaces the editor entirely. Checkbox widgets use WidgetType with mousedown handlers that dispatch transactions. Image widgets show placeholders for local vault images since we cannot resolve filesystem paths from within CodeMirror decorations."
+}

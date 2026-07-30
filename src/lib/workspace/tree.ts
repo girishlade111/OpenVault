@@ -357,6 +357,70 @@ export function setLeafCursor(
   );
 }
 
+/** Reorder tabs within a single leaf by moving a tab from one index to another. */
+export function reorderTabsInLeaf(
+  state: WorkspaceState,
+  leafId: NodeId,
+  fromIndex: number,
+  toIndex: number
+): WorkspaceState {
+  return updateLeafView(state, leafId, (view) => {
+    if (view.kind !== "editor") return view;
+    if (fromIndex < 0 || fromIndex >= view.tabs.length) return view;
+    if (toIndex < 0 || toIndex >= view.tabs.length) return view;
+    if (fromIndex === toIndex) return view;
+    const tabs = [...view.tabs];
+    const [moved] = tabs.splice(fromIndex, 1);
+    tabs.splice(toIndex, 0, moved);
+    return { ...view, tabs };
+  });
+}
+
+/** Move a tab from one leaf to another. Removes the tab from source leaf and adds it to the target. */
+export function moveTabBetweenLeaves(
+  state: WorkspaceState,
+  fromLeafId: NodeId,
+  toLeafId: NodeId,
+  fileId: string,
+  insertIndex?: number
+): WorkspaceState {
+  if (fromLeafId === toLeafId) return state;
+  const fromLeaf = findLeaf(state.root, fromLeafId);
+  const toLeaf = findLeaf(state.root, toLeafId);
+  if (!fromLeaf || !toLeaf) return state;
+  if (fromLeaf.view.kind !== "editor") return state;
+
+  const tab = fromLeaf.view.tabs.find((t) => t.fileId === fileId);
+  if (!tab) return state;
+
+  // Remove from source
+  let next = closeTabInLeaf(state, fromLeafId, fileId);
+
+  // Add to target
+  next = updateLeafView(next, toLeafId, (view) => {
+    if (view.kind !== "editor") {
+      // Promote to editor view with this tab
+      return {
+        kind: "editor",
+        tabs: [tab],
+        activeTabId: fileId,
+        scroll: { top: 0, left: 0 },
+        cursor: null,
+      };
+    }
+    // Check if already exists
+    if (view.tabs.some((t) => t.fileId === fileId)) {
+      return { ...view, activeTabId: fileId };
+    }
+    const tabs = [...view.tabs];
+    const idx = insertIndex !== undefined ? Math.min(insertIndex, tabs.length) : tabs.length;
+    tabs.splice(idx, 0, tab);
+    return { ...view, tabs, activeTabId: fileId };
+  });
+
+  return { ...next, activeLeafId: toLeafId };
+}
+
 // --- internal helpers ------------------------------------------------------
 
 /**
