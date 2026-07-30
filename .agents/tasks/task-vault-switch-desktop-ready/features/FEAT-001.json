@@ -2,7 +2,7 @@
   "id": "FEAT-001",
   "type": "fix",
   "description": "Add a 'Switch vault' button to the Ribbon so users can return to the VaultPicker after opening the demo vault (or any vault). Also add desktop-readiness polish: proper frameless window title bar drag region, app name in title bar area.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "In src/components/vault/Ribbon.tsx, add a 'Switch vault' or 'Close vault' button at the very bottom of the ribbon (below Settings), using the Vault icon (lucide-react's Vault or FolderSync or ArrowLeftRight or LogOut icon). The button calls useVaultStore's closeVault() action. Add a Tooltip with side='right' saying 'Switch vault'. Use the same styling pattern as other ribbon buttons (w-10 h-10 flex items-center justify-center rounded-md text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors).",
     "In src/components/vault/VaultApp.tsx, add a title bar drag region div at the very top of the app (inside the flex column, before the resizable panel group). This should be a thin bar (h-8) with -webkit-app-region: drag CSS for Electron frameless window dragging. It should display the vault name (from useVaultStore handle.name). Use 'no-drag' regions for any interactive elements. Only render the drag region when running in Electron (check window.electronAPI or navigator.userAgent for Electron, or simply use CSS that is harmless in browser).",
@@ -20,5 +20,5 @@
     "Read the modified Ribbon.tsx and confirm it imports closeVault from useVaultStore and has a button calling it"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "All changes passed lint cleanly. The FolderSync icon from lucide-react was used for the Switch vault button. The title bar drag region uses WebkitAppRegion CSS property which is harmless in browser contexts. Platform-aware window config in main.js correctly branches on process.platform."
 }
