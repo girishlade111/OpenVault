@@ -1,11 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Play, Pause, Tag, FileWarning, Image as ImageIcon, Filter } from "lucide-react";
+import { useMemo, useState, useRef, useCallback } from "react";
+import { Play, Pause, Tag, FileWarning, Image as ImageIcon, Maximize, RotateCcw } from "lucide-react";
 import { useVaultStore } from "@/store/vault-store";
 import { useIndexStore } from "@/store/index-store";
 import { buildGraphLayout, stabilize, type GraphLayout } from "@/lib/graph/layout";
-import { GraphCanvas } from "./GraphCanvas";
+import { GraphCanvas, zoomToFit } from "./GraphCanvas";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils";
  *
  * Renders the entire vault's link graph as a force-directed visualization.
  * Filter toggles: show/hide tags, attachments, orphan notes.
- * Controls: play/pause simulation, zoom in/out, reset.
+ * Controls: play/pause simulation, zoom in/out, reset, zoom-to-fit.
  * Click a node → open that note.
  */
 export function GraphView() {
@@ -41,6 +41,7 @@ export function GraphView() {
   const [showAttachments, setShowAttachments] = useState(false);
   const [showTags, setShowTags] = useState(true);
   const [resetNonce, setResetNonce] = useState(0);
+  const graphContainerRef = useRef<HTMLDivElement | null>(null);
 
   // Build labels map.
   const labels = useMemo(() => {
@@ -55,12 +56,50 @@ export function GraphView() {
     return m;
   }, [manifest]);
 
-  // Build (or rebuild) the layout when the index changes or filters toggle.
-  const layout = useMemo<GraphLayout | null>(() => {
+  // Fix #10 & #13: Build filtered index BEFORE building layout so hidden nodes
+  // are truly excluded from the graph (not just dimmed).
+  const filteredIndex = useMemo(() => {
     if (!index || !manifest) return null;
-    const layout = buildGraphLayout(index, labels);
+
+    // Start with all indexed files
+    const visibleIds = new Set<string>();
+    for (const fileId of index.metadata.keys()) {
+      const meta = index.metadata.get(fileId);
+      const hasIncoming = (index.incoming.get(fileId)?.length ?? 0) > 0;
+      const hasOutgoing = (index.outgoing.get(fileId)?.length ?? 0) > 0;
+      const isOrphan = !hasIncoming && !hasOutgoing;
+
+      // Filter: orphans
+      if (isOrphan && !showOrphans) continue;
+
+      // Filter: attachments (non-markdown files)
+      const node = manifest.nodes[fileId];
+      if (node && node.kind === "file" && !node.isMarkdown && !showAttachments) continue;
+
+      visibleIds.add(fileId);
+    }
+
+    // Build a filtered version of the index
+    return {
+      ...index,
+      outgoing: new Map(
+        [...index.outgoing].filter(([id]) => visibleIds.has(id))
+      ),
+      incoming: new Map(
+        [...index.incoming].filter(([id]) => visibleIds.has(id))
+      ),
+      metadata: new Map(
+        [...index.metadata].filter(([id]) => visibleIds.has(id))
+      ),
+    };
+  }, [index, manifest, showOrphans, showAttachments, showTags]);
+
+  // Build (or rebuild) the layout from the filtered index.
+  const layout = useMemo<GraphLayout | null>(() => {
+    if (!filteredIndex || !manifest) return null;
+    const layout = buildGraphLayout(filteredIndex, labels);
     return layout;
-  }, [index, manifest, labels, resetNonce]);
+  }, [filteredIndex, manifest, labels, resetNonce]);
 
   const nodeColors = useMemo(() => {
     if (!index || !manifest) return new Map<string, string>();
@@ -83,22 +122,6 @@ export function GraphView() {
     }
     return map;
   }, [index, manifest]);
-
-  // Filter the visible nodes.
-  const highlightedIds = useMemo(() => {
-    if (!index || !manifest) return null;
-    const visible = new Set<string>();
-    for (const fileId of index.metadata.keys()) {
-      const meta = index.metadata.get(fileId);
-      const hasIncoming = (index.incoming.get(fileId)?.length ?? 0) > 0;
-      const hasOutgoing = (index.outgoing.get(fileId)?.length ?? 0) > 0;
-      const isOrphan = !hasIncoming && !hasOutgoing;
-      if (isOrphan && !showOrphans) continue;
-      if (!showTags && meta && meta.tags.length === 0 && !hasIncoming && !hasOutgoing) continue;
-      visible.add(fileId);
-    }
-    return visible;
-  }, [index, manifest, showOrphans, showTags]);
 
   if (!index || !manifest || !layout) {
     return (
@@ -169,6 +192,28 @@ export function GraphView() {
             </TooltipTrigger>
             <TooltipContent>{simulate ? "Pause simulation" : "Resume simulation"}</TooltipContent>
           </Tooltip>
+          {/* Fix #9: Zoom-to-fit button */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0"
+                onClick={() => {
+                  // Zoom to fit requires access to the container dimensions
+                  // We trigger this via a custom event that GraphCanvas can listen to
+                  const container = graphContainerRef.current;
+                  if (container) {
+                    container.dispatchEvent(new CustomEvent("zoom-to-fit"));
+                  }
+                }}
+                aria-label="Zoom to fit"
+              >
+                <Maximize className="w-3.5 h-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Zoom to fit all nodes</TooltipContent>
+          </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -178,7 +223,7 @@ export function GraphView() {
                 onClick={() => setResetNonce((n) => n + 1)}
                 aria-label="Reset layout"
               >
-                <Filter className="w-3.5 h-3.5" />
+                <RotateCcw className="w-3.5 h-3.5" />
               </Button>
             </TooltipTrigger>
             <TooltipContent>Reset layout</TooltipContent>
@@ -186,12 +231,12 @@ export function GraphView() {
         </TooltipProvider>
       </div>
 
-      <div className="flex-1 min-h-0">
+      <div ref={graphContainerRef} className="flex-1 min-h-0">
         <GraphCanvas
           layout={layout}
           simulate={simulate}
           activeFileId={activeFileId}
-          highlightedIds={highlightedIds}
+          highlightedIds={null}
           nodeColors={nodeColors}
           onNodeClick={(fileId) => openFile(fileId)}
         />
