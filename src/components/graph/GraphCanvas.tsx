@@ -274,10 +274,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
     };
   }, [simulate, layout, options, render, performZoomToFit]);
 
-  // Reset initialFitDone when layout changes (e.g. filter change, reset).
-  useEffect(() => {
-    initialFitDone.current = false;
-  }, [layout]);
+
 
   // Non-passive wheel handler for zoom.
   useEffect(() => {

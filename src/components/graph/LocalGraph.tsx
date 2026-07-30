@@ -166,6 +166,13 @@ export function LocalGraph() {
     ctx.restore();
   }, [activeFileId, hoveredId]);
 
+  // Store renderMini in a ref so the animation loop always uses the latest
+  // without restarting when hoveredId changes.
+  const renderMiniRef = useRef(renderMini);
+  useEffect(() => {
+    renderMiniRef.current = renderMini;
+  }, [renderMini]);
+
   // Animation loop.
   useEffect(() => {
     let running = true;
@@ -174,7 +181,7 @@ export function LocalGraph() {
       const layout = layoutRef.current;
       if (layout) {
         tickLayout(layout);
-        renderMini();
+        renderMiniRef.current();
       }
       requestAnimationFrame(loop);
     };
@@ -182,7 +189,7 @@ export function LocalGraph() {
     return () => {
       running = false;
     };
-  }, [localData, renderMini]);
+  }, [localData]);
 
   // Non-passive wheel handler for zoom.
   useEffect(() => {

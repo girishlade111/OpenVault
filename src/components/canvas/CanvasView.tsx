@@ -264,9 +264,17 @@ export function CanvasView() {
           selected: s.selected.includes(hit.id) ? s.selected : [hit.id],
         }));
       }
+      // Mirror the selection logic exactly to compute the post-setState selection
+      let currentSelected: string[];
+      if (e.shiftKey) {
+        currentSelected = state.selected.includes(hit.id)
+          ? state.selected.filter((id) => id !== hit.id)
+          : [...state.selected, hit.id];
+      } else {
+        currentSelected = state.selected.includes(hit.id) ? state.selected : [hit.id];
+      }
       // Store initial positions of all selected nodes for multi-select drag
       const selectedStarts = new Map<string, { x: number; y: number }>();
-      const currentSelected = state.selected.includes(hit.id) ? state.selected : [hit.id];
       for (const nid of currentSelected) {
         const n = state.nodes.find((node) => node.id === nid);
         if (n) selectedStarts.set(nid, { x: n.x, y: n.y });
@@ -717,21 +725,26 @@ function CanvasNodeView({
     const startY = e.clientY;
     const startWidth = node.width;
     const startHeight = node.height;
+    let prevDx = 0;
+    let prevDy = 0;
 
     const onMove = (me: MouseEvent) => {
       const deltaX = me.clientX - startX;
       const deltaY = me.clientY - startY;
       let w = startWidth;
       let h = startHeight;
-      let dx = 0;
-      let dy = 0;
+      let frameDx = 0;
+      let frameDy = 0;
 
       if (dir.includes("e")) w = startWidth + deltaX;
-      if (dir.includes("w")) { w = startWidth - deltaX; dx = deltaX; }
+      if (dir.includes("w")) { w = startWidth - deltaX; frameDx = deltaX - prevDx; }
       if (dir.includes("s")) h = startHeight + deltaY;
-      if (dir.includes("n")) { h = startHeight - deltaY; dy = deltaY; }
+      if (dir.includes("n")) { h = startHeight - deltaY; frameDy = deltaY - prevDy; }
 
-      if (onResize) onResize(node.id, w, h, dx, dy);
+      prevDx = dir.includes("w") ? deltaX : 0;
+      prevDy = dir.includes("n") ? deltaY : 0;
+
+      if (onResize) onResize(node.id, w, h, frameDx, frameDy);
     };
 
     const onUp = () => {
