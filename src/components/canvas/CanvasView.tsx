@@ -47,6 +47,23 @@ export function CanvasView() {
     nodeStartY: number;
   }>({ type: null, nodeId: null, startX: 0, startY: 0, nodeStartX: 0, nodeStartY: 0 });
 
+  const [drawingEdge, setDrawingEdge] = useState<{ source: string; x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.key === "Delete" || e.key === "Backspace") && !['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) {
+        setState((s) => ({
+          ...s,
+          nodes: s.nodes.filter(n => !s.selected.includes(n.id)),
+          edges: s.edges.filter(edge => !s.selected.includes(edge.source) && !s.selected.includes(edge.target)),
+          selected: []
+        }));
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   const addNode = (type: CanvasNode["type"]) => {
     // Add at the center of the current viewport.
     const container = containerRef.current;
@@ -97,6 +114,13 @@ export function CanvasView() {
     const sx = e.clientX - container.getBoundingClientRect().left;
     const sy = e.clientY - container.getBoundingClientRect().top;
     const drag = dragRef.current;
+    if (drawingEdge) {
+      setState(s => s); // dummy to trigger render if needed, or just rely on drawingEdge state?
+      // Actually we need world coords for drawingEdge
+      const world = screenToWorld(sx, sy, state.panX, state.panY, state.zoom);
+      setDrawingEdge(prev => prev ? { ...prev, x: world.x, y: world.y } : null);
+      return;
+    }
     if (drag.type === "pan") {
       const dx = sx - drag.startX;
       const dy = sy - drag.startY;
@@ -115,7 +139,28 @@ export function CanvasView() {
     }
   };
 
-  const handleMouseUp = () => {
+  const handleMouseUp = (e: React.MouseEvent) => {
+    if (drawingEdge) {
+      const container = containerRef.current;
+      if (container) {
+        const sx = e.clientX - container.getBoundingClientRect().left;
+        const sy = e.clientY - container.getBoundingClientRect().top;
+        const world = screenToWorld(sx, sy, state.panX, state.panY, state.zoom);
+        const targetNode = nodeAt(state.nodes, world.x, world.y);
+        
+        if (targetNode && targetNode.id !== drawingEdge.source) {
+          const newEdge = {
+            id: genCanvasId("edge"),
+            source: drawingEdge.source,
+            target: targetNode.id,
+            label: null,
+            color: null
+          };
+          setState(s => ({ ...s, edges: [...s.edges, newEdge] }));
+        }
+      }
+      setDrawingEdge(null);
+    }
     dragRef.current = { type: null, nodeId: null, startX: 0, startY: 0, nodeStartX: 0, nodeStartY: 0 };
   };
 
@@ -241,6 +286,24 @@ export function CanvasView() {
               <polygon points="0 0, 10 3.5, 0 7" fill="hsl(var(--muted-foreground))" />
             </marker>
           </defs>
+          {drawingEdge && (() => {
+            const sourceNode = state.nodes.find(n => n.id === drawingEdge.source);
+            if (!sourceNode) return null;
+            const sx = sourceNode.x + sourceNode.width / 2;
+            const sy = sourceNode.y + sourceNode.height / 2;
+            return (
+              <line
+                x1={sx}
+                y1={sy}
+                x2={drawingEdge.x}
+                y2={drawingEdge.y}
+                stroke="hsl(var(--muted-foreground))"
+                strokeWidth="2"
+                strokeDasharray="4"
+                markerEnd="url(#arrowhead)"
+              />
+            );
+          })()}
         </svg>
 
         {/* Nodes layer (transformed by pan/zoom) */}
@@ -272,6 +335,10 @@ export function CanvasView() {
                   ),
                 }));
               }}
+              onStartEdge={(id, x, y) => {
+                const world = screenToWorld(x, y, state.panX, state.panY, state.zoom);
+                setDrawingEdge({ source: id, x: world.x, y: world.y });
+              }}
             />
           ))}
         </div>
@@ -301,11 +368,13 @@ function CanvasNodeView({
   selected,
   onTextChange,
   onResize,
+  onStartEdge,
 }: {
   node: CanvasNode;
   selected: boolean;
   onTextChange: (id: string, text: string) => void;
   onResize?: (id: string, dx: number, dy: number) => void;
+  onStartEdge?: (id: string, startX: number, startY: number) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(node.text);
@@ -391,12 +460,20 @@ function CanvasNodeView({
       
       {/* Resize handle */}
       {selected && (
-        <div
-          className="absolute right-0 bottom-0 w-3 h-3 cursor-nwse-resize opacity-0 group-hover:opacity-100 transition-opacity"
-          onMouseDown={startDragResize}
-        >
-          <div className="absolute right-1 bottom-1 w-1.5 h-1.5 bg-primary rounded-full" />
-        </div>
+        <>
+          <div
+            className="absolute right-0 bottom-0 w-3 h-3 cursor-nwse-resize opacity-0 group-hover:opacity-100 transition-opacity"
+            onMouseDown={startDragResize}
+          >
+            <div className="absolute right-1 bottom-1 w-1.5 h-1.5 bg-primary rounded-full" />
+          </div>
+          
+          {/* Edge connection handles */}
+          <div className="absolute left-1/2 -top-2 w-3 h-3 -translate-x-1/2 cursor-crosshair opacity-0 group-hover:opacity-100 bg-primary/20 hover:bg-primary rounded-full" onMouseDown={(e) => { e.stopPropagation(); onStartEdge?.(node.id, e.clientX, e.clientY); }} />
+          <div className="absolute left-1/2 -bottom-2 w-3 h-3 -translate-x-1/2 cursor-crosshair opacity-0 group-hover:opacity-100 bg-primary/20 hover:bg-primary rounded-full" onMouseDown={(e) => { e.stopPropagation(); onStartEdge?.(node.id, e.clientX, e.clientY); }} />
+          <div className="absolute -left-2 top-1/2 w-3 h-3 -translate-y-1/2 cursor-crosshair opacity-0 group-hover:opacity-100 bg-primary/20 hover:bg-primary rounded-full" onMouseDown={(e) => { e.stopPropagation(); onStartEdge?.(node.id, e.clientX, e.clientY); }} />
+          <div className="absolute -right-2 top-1/2 w-3 h-3 -translate-y-1/2 cursor-crosshair opacity-0 group-hover:opacity-100 bg-primary/20 hover:bg-primary rounded-full" onMouseDown={(e) => { e.stopPropagation(); onStartEdge?.(node.id, e.clientX, e.clientY); }} />
+        </>
       )}
     </div>
   );
