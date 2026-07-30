@@ -1,0 +1,14 @@
+{
+  "task_id": "task-fix-graph-canvas",
+  "task_description": "Audit and fix bugs in the OpenVault codebase, specifically making the Graph View and Canvas View work properly like Obsidian. Fix lint errors, React ref bugs, improve graph force-directed layout with auto-stabilization and zoom-to-fit, enhance canvas with proper edge connections, persistence, resize from all sides, and minimap.",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003", "FEAT-004"],
+  "blocked_reason": null,
+  "verification": {
+    "build": "pass",
+    "tests": "pass",
+    "test_quality": "pass",
+    "docker_build": "skipped",
+    "summary": "bunx --bun tsc --noEmit passes (only pre-existing errors in examples/ websocket demo). bun run lint passes with 0 errors. No test suite exists in this project."
+  }
+}

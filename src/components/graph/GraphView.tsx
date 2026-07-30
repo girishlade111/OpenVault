@@ -1,13 +1,14 @@
 "use client";
 
-import { useMemo, useState, useRef, useCallback } from "react";
-import { Play, Pause, Tag, FileWarning, Image as ImageIcon, Maximize, RotateCcw } from "lucide-react";
+import { useMemo, useState, useRef } from "react";
+import { Play, Pause, Tag, FileWarning, Image as ImageIcon, Maximize, RotateCcw, Search } from "lucide-react";
 import { useVaultStore } from "@/store/vault-store";
 import { useIndexStore } from "@/store/index-store";
-import { buildGraphLayout, stabilize, type GraphLayout } from "@/lib/graph/layout";
-import { GraphCanvas, zoomToFit } from "./GraphCanvas";
+import { buildGraphLayout, type GraphLayout } from "@/lib/graph/layout";
+import { GraphCanvas, type GraphCanvasHandle } from "./GraphCanvas";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import {
   Tooltip,
   TooltipContent,
@@ -22,7 +23,7 @@ import { cn } from "@/lib/utils";
  * Renders the entire vault's link graph as a force-directed visualization.
  * Filter toggles: show/hide tags, attachments, orphan notes.
  * Controls: play/pause simulation, zoom in/out, reset, zoom-to-fit.
- * Click a node → open that note.
+ * Click a node -> open that note.
  */
 export function GraphView() {
   const manifest = useVaultStore((s) => s.manifest);
@@ -41,7 +42,8 @@ export function GraphView() {
   const [showAttachments, setShowAttachments] = useState(false);
   const [showTags, setShowTags] = useState(true);
   const [resetNonce, setResetNonce] = useState(0);
-  const graphContainerRef = useRef<HTMLDivElement | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const graphCanvasRef = useRef<GraphCanvasHandle>(null);
 
   // Build labels map.
   const labels = useMemo(() => {
@@ -56,7 +58,7 @@ export function GraphView() {
     return m;
   }, [manifest]);
 
-  // Fix #10 & #13: Build filtered index BEFORE building layout so hidden nodes
+  // Build filtered index BEFORE building layout so hidden nodes
   // are truly excluded from the graph (not just dimmed).
   const filteredIndex = useMemo(() => {
     if (!index || !manifest) return null;
@@ -64,7 +66,6 @@ export function GraphView() {
     // Start with all indexed files
     const visibleIds = new Set<string>();
     for (const fileId of index.metadata.keys()) {
-      const meta = index.metadata.get(fileId);
       const hasIncoming = (index.incoming.get(fileId)?.length ?? 0) > 0;
       const hasOutgoing = (index.outgoing.get(fileId)?.length ?? 0) > 0;
       const isOrphan = !hasIncoming && !hasOutgoing;
@@ -97,9 +98,22 @@ export function GraphView() {
   // Build (or rebuild) the layout from the filtered index.
   const layout = useMemo<GraphLayout | null>(() => {
     if (!filteredIndex || !manifest) return null;
-    const layout = buildGraphLayout(filteredIndex, labels);
-    return layout;
+    const l = buildGraphLayout(filteredIndex, labels);
+    return l;
   }, [filteredIndex, manifest, labels, resetNonce]);
+
+  // Compute highlighted node IDs from search query.
+  const highlightedIds = useMemo<Set<string> | null>(() => {
+    if (!searchQuery.trim() || !layout) return null;
+    const query = searchQuery.toLowerCase();
+    const ids = new Set<string>();
+    for (const node of layout.nodes.values()) {
+      if (node.label.toLowerCase().includes(query)) {
+        ids.add(node.id);
+      }
+    }
+    return ids.size > 0 ? ids : null;
+  }, [searchQuery, layout]);
 
   const nodeColors = useMemo(() => {
     if (!index || !manifest) return new Map<string, string>();
@@ -126,7 +140,7 @@ export function GraphView() {
   if (!index || !manifest || !layout) {
     return (
       <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
-        Building graph…
+        Building graph...
       </div>
     );
   }
@@ -158,6 +172,16 @@ export function GraphView() {
           </Badge>
         )}
         <div className="flex-1" />
+        {/* Search input */}
+        <div className="relative">
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+          <Input
+            placeholder="Filter nodes..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="h-7 w-36 pl-7 text-xs"
+          />
+        </div>
         <TooltipProvider delayDuration={300}>
           <FilterToggle
             icon={<FileWarning className="w-3.5 h-3.5" />}
@@ -192,21 +216,14 @@ export function GraphView() {
             </TooltipTrigger>
             <TooltipContent>{simulate ? "Pause simulation" : "Resume simulation"}</TooltipContent>
           </Tooltip>
-          {/* Fix #9: Zoom-to-fit button */}
+          {/* Zoom-to-fit button using ref */}
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"
                 size="sm"
                 className="h-7 w-7 p-0"
-                onClick={() => {
-                  // Zoom to fit requires access to the container dimensions
-                  // We trigger this via a custom event that GraphCanvas can listen to
-                  const container = graphContainerRef.current;
-                  if (container) {
-                    container.dispatchEvent(new CustomEvent("zoom-to-fit"));
-                  }
-                }}
+                onClick={() => graphCanvasRef.current?.zoomToFit()}
                 aria-label="Zoom to fit"
               >
                 <Maximize className="w-3.5 h-3.5" />
@@ -231,12 +248,13 @@ export function GraphView() {
         </TooltipProvider>
       </div>
 
-      <div ref={graphContainerRef} className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0">
         <GraphCanvas
+          ref={graphCanvasRef}
           layout={layout}
           simulate={simulate}
           activeFileId={activeFileId}
-          highlightedIds={null}
+          highlightedIds={highlightedIds}
           nodeColors={nodeColors}
           onNodeClick={(fileId) => openFile(fileId)}
         />
@@ -244,7 +262,7 @@ export function GraphView() {
 
       {/* Hint */}
       <div className="absolute bottom-2 left-2 text-[10px] text-muted-foreground bg-background/80 backdrop-blur px-2 py-1 rounded">
-        Drag to pan · Scroll to zoom · Click a node to open
+        Drag to pan · Scroll to zoom · Click node to open · F to fit · +/- to zoom
       </div>
     </div>
   );

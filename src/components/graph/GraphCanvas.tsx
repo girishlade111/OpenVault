@@ -1,9 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from "react";
 import type { FileId } from "@/lib/vault/types";
 import type { GraphLayout, LayoutOptions } from "@/lib/graph/layout";
 import { tickLayout, pinNode, unpinNode } from "@/lib/graph/layout";
+
+/** Handle exposed via ref so parent can call zoomToFit imperatively. */
+export interface GraphCanvasHandle {
+  zoomToFit: () => void;
+}
 
 interface GraphCanvasProps {
   layout: GraphLayout;
@@ -36,46 +41,67 @@ interface GraphCanvasProps {
  * Features:
  *  - Continuous physics simulation (toggleable).
  *  - Pan (drag background) + zoom (wheel).
- *  - Node hover → label shown.
- *  - Node click → onNodeClick callback.
- *  - Node drag → pin at cursor position (unpins on release).
+ *  - Node hover -> label shown.
+ *  - Node click -> onNodeClick callback.
+ *  - Node drag -> pin at cursor position (unpins on release).
  *  - Active node highlighted with a ring.
  *  - Node size scales with degree.
+ *  - Auto zoom-to-fit on initial mount.
+ *  - Keyboard shortcuts: +/- zoom, 0 reset, f zoom-to-fit.
+ *  - Subtle glow effect on nodes.
+ *  - Labels visible at higher zoom levels.
  *
  * The canvas is HiDPI-aware (scales by devicePixelRatio).
  */
-export function GraphCanvas({
-  layout,
-  options,
-  activeFileId,
-  highlightedIds,
-  onNodeClick,
-  simulate = true,
-  nodeColor = "hsl(var(--primary))",
-  nodeColors,
-  activeColor = "#f59e0b",
-  edgeColor = "hsl(var(--muted-foreground) / 0.3)",
-  backgroundColor = "transparent",
-  showAllLabels = false,
-}: GraphCanvasProps) {
+export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(function GraphCanvas(
+  {
+    layout,
+    options,
+    activeFileId,
+    highlightedIds,
+    onNodeClick,
+    simulate = true,
+    nodeColor = "hsl(var(--primary))",
+    nodeColors,
+    activeColor = "#f59e0b",
+    edgeColor = "hsl(var(--muted-foreground) / 0.3)",
+    backgroundColor = "transparent",
+    showAllLabels = false,
+  },
+  ref
+) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const animationRef = useRef<number | null>(null);
+  const initialFitDone = useRef(false);
 
   // Viewport state: pan offset + zoom scale.
   const viewportRef = useRef({ x: 0, y: 0, scale: 1 });
   const [hoveredId, setHoveredId] = useState<FileId | null>(null);
-  // Fix #2: Separate dragStart coords from lastX/lastY to properly detect clicks
   const dragRef = useRef<{
     type: "pan" | "node" | null;
     nodeId: FileId | null;
-    startX: number;  // original mouseDown position (never updated during drag)
+    startX: number;
     startY: number;
-    lastX: number;   // last known position (updated on every move)
+    lastX: number;
     lastY: number;
   }>({ type: null, nodeId: null, startX: 0, startY: 0, lastX: 0, lastY: 0 });
 
-  // Convert screen coords → world coords.
+  // Zoom-to-fit helper.
+  const performZoomToFit = useCallback(() => {
+    const container = containerRef.current;
+    if (!container || layout.nodes.size === 0) return;
+    const w = container.clientWidth;
+    const h = container.clientHeight;
+    zoomToFit(layout, viewportRef, w, h);
+  }, [layout]);
+
+  // Expose zoomToFit via imperative handle.
+  useImperativeHandle(ref, () => ({
+    zoomToFit: performZoomToFit,
+  }), [performZoomToFit]);
+
+  // Convert screen coords -> world coords.
   const screenToWorld = useCallback((sx: number, sy: number) => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
@@ -91,14 +117,13 @@ export function GraphCanvas({
   const nodeAtScreen = useCallback(
     (sx: number, sy: number): FileId | null => {
       const world = screenToWorld(sx, sy);
-      // Iterate in reverse so top-drawn nodes are hit first.
       const nodeArr = [...layout.nodes.values()];
       for (let i = nodeArr.length - 1; i >= 0; i--) {
         const n = nodeArr[i];
         const r = nodeRadius(n.degree);
         const dx = world.x - n.x;
         const dy = world.y - n.y;
-        if (dx * dx + dy * dy <= r * r) return n.id;
+        if (dx * dx + dy * dy <= (r + 2) * (r + 2)) return n.id;
       }
       return null;
     },
@@ -166,10 +191,24 @@ export function GraphCanvas({
         ctx.globalAlpha = 0.08;
       }
 
+      const c = nodeColors?.get(node.id) || nodeColor;
+
+      // Glow/bloom effect - subtle semi-transparent circle behind node
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, r + 3, 0, Math.PI * 2);
+      if (isActive) {
+        ctx.fillStyle = activeColor + "30";
+      } else if (isHovered) {
+        ctx.fillStyle = c.includes("hsl") ? "hsla(var(--primary) / 0.2)" : c + "30";
+      } else {
+        ctx.fillStyle = c.includes("hsl") ? "hsla(var(--primary) / 0.12)" : c + "20";
+      }
+      ctx.fill();
+
       // Active ring.
       if (isActive) {
         ctx.beginPath();
-        ctx.arc(node.x, node.y, r + 4, 0, Math.PI * 2);
+        ctx.arc(node.x, node.y, r + 5, 0, Math.PI * 2);
         ctx.fillStyle = activeColor + "40";
         ctx.fill();
       }
@@ -177,7 +216,6 @@ export function GraphCanvas({
       // Node circle.
       ctx.beginPath();
       ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
-      const c = nodeColors?.get(node.id) || nodeColor;
       if (isActive) {
         ctx.fillStyle = activeColor;
       } else if (isHovered) {
@@ -185,28 +223,35 @@ export function GraphCanvas({
         ctx.globalAlpha = 1;
       } else if (highlightedIds && !isHighlighted) {
         ctx.fillStyle = c;
-        // already set globalAlpha above
       } else {
         ctx.fillStyle = c;
-        ctx.globalAlpha = 0.8;
+        ctx.globalAlpha = 0.85;
       }
       ctx.fill();
       ctx.globalAlpha = 1;
 
-      // Label: show on hover, for active, or if showAllLabels.
-      if (isHovered || isActive || showAllLabels) {
+      // Labels: show on hover, for active, if showAllLabels, or when zoomed in enough
+      const showLabel = isHovered || isActive || showAllLabels || vp.scale > 1.2;
+      if (showLabel) {
+        // Clamp font size between 9 and 14 screen pixels
+        const fontSize = Math.max(9, Math.min(14, 12 * vp.scale)) / vp.scale;
         ctx.fillStyle = "hsl(var(--foreground))";
-        ctx.font = `${12 / vp.scale}px sans-serif`;
+        ctx.font = `${fontSize}px sans-serif`;
         ctx.textAlign = "center";
         ctx.textBaseline = "top";
+        // Fade labels slightly when zoomed out unless hovered/active
+        if (!isHovered && !isActive && vp.scale < 1.5) {
+          ctx.globalAlpha = 0.7;
+        }
         ctx.fillText(node.label, node.x, node.y + r + 4);
+        ctx.globalAlpha = 1;
       }
     }
 
     ctx.restore();
   }, [layout, activeFileId, hoveredId, highlightedIds, nodeColor, nodeColors, activeColor, edgeColor, backgroundColor, showAllLabels]);
 
-  // Animation loop: tick simulation + render.
+  // Animation loop: tick simulation + render + auto zoom-to-fit on first frame.
   useEffect(() => {
     let running = true;
     const loop = () => {
@@ -215,6 +260,11 @@ export function GraphCanvas({
         tickLayout(layout, options);
       }
       render();
+      // Auto zoom-to-fit on the first frame when nodes exist
+      if (!initialFitDone.current && layout.nodes.size > 0 && containerRef.current) {
+        performZoomToFit();
+        initialFitDone.current = true;
+      }
       animationRef.current = requestAnimationFrame(loop);
     };
     animationRef.current = requestAnimationFrame(loop);
@@ -222,9 +272,11 @@ export function GraphCanvas({
       running = false;
       if (animationRef.current) cancelAnimationFrame(animationRef.current);
     };
-  }, [simulate, layout, options, render]);
+  }, [simulate, layout, options, render, performZoomToFit]);
 
-  // Fix #4: Non-passive wheel handler via addEventListener
+
+
+  // Non-passive wheel handler for zoom.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -249,15 +301,50 @@ export function GraphCanvas({
     return () => canvas.removeEventListener("wheel", handleWheel);
   }, []);
 
+  // Keyboard shortcuts when canvas container is focused.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const vp = viewportRef.current;
+      switch (e.key) {
+        case "+":
+        case "=":
+          e.preventDefault();
+          vp.scale = Math.min(5, vp.scale * 1.2);
+          break;
+        case "-":
+          e.preventDefault();
+          vp.scale = Math.max(0.1, vp.scale / 1.2);
+          break;
+        case "0":
+          e.preventDefault();
+          vp.x = 0;
+          vp.y = 0;
+          vp.scale = 1;
+          break;
+        case "f":
+        case "F":
+          e.preventDefault();
+          performZoomToFit();
+          break;
+      }
+    };
+    container.addEventListener("keydown", handleKeyDown);
+    return () => container.removeEventListener("keydown", handleKeyDown);
+  }, [performZoomToFit]);
+
   // Mouse handlers.
   const handleMouseDown = (e: React.MouseEvent) => {
+    // Focus the container for keyboard shortcuts
+    containerRef.current?.focus();
     const id = nodeAtScreen(e.clientX, e.clientY);
     if (id) {
       const world = screenToWorld(e.clientX, e.clientY);
       dragRef.current = {
         type: "node",
         nodeId: id,
-        startX: e.clientX,  // Fix #2: store original start position
+        startX: e.clientX,
         startY: e.clientY,
         lastX: e.clientX,
         lastY: e.clientY,
@@ -300,7 +387,6 @@ export function GraphCanvas({
 
   const handleMouseUp = (e: React.MouseEvent) => {
     if (dragRef.current.type === "node" && dragRef.current.nodeId) {
-      // Fix #2: Use startX/startY (original mousedown position) for "barely moved" check
       const moved = Math.abs(e.clientX - dragRef.current.startX) + Math.abs(e.clientY - dragRef.current.startY);
       if (moved < 4 && onNodeClick) {
         onNodeClick(dragRef.current.nodeId);
@@ -311,7 +397,11 @@ export function GraphCanvas({
   };
 
   return (
-    <div ref={containerRef} className="h-full w-full relative overflow-hidden">
+    <div
+      ref={containerRef}
+      className="h-full w-full relative overflow-hidden outline-none"
+      tabIndex={0}
+    >
       <canvas
         ref={canvasRef}
         className="absolute inset-0 cursor-grab"
@@ -319,11 +409,10 @@ export function GraphCanvas({
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
-        // Wheel handled via non-passive addEventListener in useEffect
       />
     </div>
   );
-}
+});
 
 /** Zoom the viewport to fit all nodes with padding. */
 export function zoomToFit(

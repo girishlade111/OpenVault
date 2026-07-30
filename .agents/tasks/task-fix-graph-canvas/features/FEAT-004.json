@@ -1,0 +1,26 @@
+{
+  "id": "FEAT-004",
+  "type": "fix",
+  "description": "Fix review issues: north/west resize position drift, stale state.selected in multi-select drag, initialFitDone reset on layout change, and LocalGraph animation loop restart on hover",
+  "status": "completed",
+  "steps": [
+    "In CanvasView.tsx CanvasNodeView startResize: Track prevDx and prevDy as local variables in the closure. Pass frame-relative deltas (currentTotal - prevTotal) to onResize instead of total deltas.",
+    "In CanvasView.tsx handleMouseDown: Mirror the selection logic for shift-click correctly when computing currentSelected - account for toggle-off case.",
+    "In GraphCanvas.tsx: Remove the useEffect that resets initialFitDone.current = false on [layout] dependency change.",
+    "In LocalGraph.tsx: Remove renderMini from the animation loop useEffect dependencies. Store the render function in a ref so it is always fresh without triggering effect cleanup."
+  ],
+  "acceptance_criteria": [
+    "North/west resize handles move the node correctly without quadratic drift",
+    "Multi-select drag correctly handles shift-click toggle-off scenario",
+    "Auto zoom-to-fit only fires on initial mount, not on every filter toggle",
+    "LocalGraph animation loop does not restart on hover state changes",
+    "bun run lint passes with 0 errors",
+    "bunx --bun tsc --noEmit has no new errors in src/"
+  ],
+  "verification": [
+    "Run: cd /projects/sandbox/OpenVault && bun run lint",
+    "Run: cd /projects/sandbox/OpenVault && bunx --bun tsc --noEmit 2>&1 | grep -v examples/"
+  ],
+  "blocked_reason": null,
+  "findings": "All four review issues resolved. Resize now uses frame-relative deltas tracked via prevDx/prevDy closure variables. Multi-select drag mirrors shift-click toggle-off correctly. GraphCanvas auto-fit only fires on initial mount. LocalGraph animation loop uses a ref for renderMini to avoid restarts on hover. Lint passes with 0 errors, TypeScript passes (only pre-existing examples/ errors)."
+}

@@ -4,7 +4,6 @@ import { useRef, useState, useCallback, useEffect } from "react";
 import {
   Type,
   FileText,
-  MousePointer2,
   Plus,
   ZoomIn,
   ZoomOut,
@@ -85,10 +84,29 @@ const NODE_COLORS = [
  *  - Delete: Delete/Backspace removes selected nodes.
  *  - Undo/Redo: Ctrl+Z / Ctrl+Y.
  */
+// ── localStorage persistence key ─────────────────────────────────────────
+const CANVAS_STORAGE_KEY = "openvault-canvas-state";
+
+function loadCanvasState(): CanvasState {
+  if (typeof window === "undefined") return emptyCanvas();
+  try {
+    const raw = localStorage.getItem(CANVAS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as CanvasState;
+      // Reset selection on load
+      return { ...parsed, selected: [] };
+    }
+  } catch {
+    // ignore parse errors
+  }
+  return emptyCanvas();
+}
+
 export function CanvasView() {
-  const [state, setState] = useState<CanvasState>(emptyCanvas);
+  const [state, setState] = useState<CanvasState>(loadCanvasState);
   const [history, setHistory] = useState<HistoryStack>({ past: [], future: [] });
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
   const dragRef = useRef<{
     type: "pan" | "node" | null;
     nodeId: string | null;
@@ -96,10 +114,40 @@ export function CanvasView() {
     startY: number;
     nodeStartX: number;
     nodeStartY: number;
-  }>({ type: null, nodeId: null, startX: 0, startY: 0, nodeStartX: 0, nodeStartY: 0 });
+    selectedStarts: Map<string, { x: number; y: number }>;
+  }>({ type: null, nodeId: null, startX: 0, startY: 0, nodeStartX: 0, nodeStartY: 0, selectedStarts: new Map() });
 
   const [drawingEdge, setDrawingEdge] = useState<{ source: string; x: number; y: number } | null>(null);
   const [showColorPicker, setShowColorPicker] = useState(false);
+
+  // ── Track container size via ResizeObserver (avoids ref read during render) ──
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setContainerSize({ width: entry.contentRect.width, height: entry.contentRect.height });
+      }
+    });
+    ro.observe(container);
+    // Set initial size
+    setContainerSize({ width: container.clientWidth, height: container.clientHeight });
+    return () => ro.disconnect();
+  }, []);
+
+  // ── Persist canvas state to localStorage (debounced) ─────────────────────
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      try {
+        // Don't persist selection, it's transient
+        const toSave: CanvasState = { ...state, selected: [] };
+        localStorage.setItem(CANVAS_STORAGE_KEY, JSON.stringify(toSave));
+      } catch {
+        // ignore quota errors
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [state]);
 
   /** Save current state to undo history before a destructive operation. */
   const snapshot = useCallback(() => {
@@ -216,6 +264,21 @@ export function CanvasView() {
           selected: s.selected.includes(hit.id) ? s.selected : [hit.id],
         }));
       }
+      // Mirror the selection logic exactly to compute the post-setState selection
+      let currentSelected: string[];
+      if (e.shiftKey) {
+        currentSelected = state.selected.includes(hit.id)
+          ? state.selected.filter((id) => id !== hit.id)
+          : [...state.selected, hit.id];
+      } else {
+        currentSelected = state.selected.includes(hit.id) ? state.selected : [hit.id];
+      }
+      // Store initial positions of all selected nodes for multi-select drag
+      const selectedStarts = new Map<string, { x: number; y: number }>();
+      for (const nid of currentSelected) {
+        const n = state.nodes.find((node) => node.id === nid);
+        if (n) selectedStarts.set(nid, { x: n.x, y: n.y });
+      }
       dragRef.current = {
         type: "node",
         nodeId: hit.id,
@@ -223,9 +286,10 @@ export function CanvasView() {
         startY: sy,
         nodeStartX: hit.x,
         nodeStartY: hit.y,
+        selectedStarts,
       };
     } else {
-      dragRef.current = { type: "pan", nodeId: null, startX: sx, startY: sy, nodeStartX: 0, nodeStartY: 0 };
+      dragRef.current = { type: "pan", nodeId: null, startX: sx, startY: sy, nodeStartX: 0, nodeStartY: 0, selectedStarts: new Map() };
       if (!e.shiftKey) {
         setState((s) => ({ ...s, selected: [] }));
       }
@@ -254,22 +318,18 @@ export function CanvasView() {
     } else if (drag.type === "node" && drag.nodeId) {
       const dx = (sx - drag.startX) / state.zoom;
       const dy = (sy - drag.startY) / state.zoom;
-      // Move all selected nodes together
+      // Move all selected nodes together using absolute positioning from initial
       setState((s) => {
         const selectedSet = new Set(s.selected);
         if (selectedSet.size > 1 && selectedSet.has(drag.nodeId!)) {
-          // Multi-select drag: move all selected nodes by the same delta
-          const primaryNode = s.nodes.find(n => n.id === drag.nodeId);
-          if (!primaryNode) return s;
+          // Multi-select drag: compute absolute positions from stored starts
           return {
             ...s,
             nodes: s.nodes.map((n) => {
               if (!selectedSet.has(n.id)) return n;
-              if (n.id === drag.nodeId) {
-                return { ...n, x: drag.nodeStartX + dx, y: drag.nodeStartY + dy };
-              }
-              // Other selected nodes: apply same delta
-              return { ...n, x: n.x + (dx - (primaryNode.x - drag.nodeStartX)), y: n.y + (dy - (primaryNode.y - drag.nodeStartY)) };
+              const start = drag.selectedStarts.get(n.id);
+              if (!start) return n;
+              return { ...n, x: start.x + dx, y: start.y + dy };
             }),
           };
         }
@@ -306,11 +366,7 @@ export function CanvasView() {
       }
       setDrawingEdge(null);
     }
-    dragRef.current = { type: null, nodeId: null, startX: 0, startY: 0, nodeStartX: 0, nodeStartY: 0 };
-  };
-
-  const resetView = () => {
-    setState((s) => ({ ...s, panX: 0, panY: 0, zoom: 1 }));
+    dragRef.current = { type: null, nodeId: null, startX: 0, startY: 0, nodeStartX: 0, nodeStartY: 0, selectedStarts: new Map() };
   };
 
   /** Zoom to fit all nodes in view. */
@@ -344,10 +400,35 @@ export function CanvasView() {
     setShowColorPicker(false);
   };
 
-  // Fix #5: Apply viewport culling
-  const container = containerRef.current;
-  const renderedNodes = container
-    ? visibleNodes(state.nodes, state.panX, state.panY, state.zoom, container.clientWidth, container.clientHeight)
+  // ── Double-click on empty background to create a new text node ──────────
+  const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+    // Only handle double-click on the canvas background (not on a node)
+    if ((e.target as HTMLElement).closest('[data-canvas-node]')) return;
+    const container = containerRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
+    const world = screenToWorld(sx, sy, state.panX, state.panY, state.zoom);
+    snapshot();
+    const node: CanvasNode = {
+      id: genCanvasId("node"),
+      type: "text",
+      x: world.x - 75,
+      y: world.y - 40,
+      width: 150,
+      height: 80,
+      zIndex: state.nodes.length + 1,
+      text: "Double-click to edit",
+      color: null,
+      fileId: null,
+    };
+    setState((s) => ({ ...s, nodes: [...s.nodes, node], selected: [node.id] }));
+  }, [state.panX, state.panY, state.zoom, state.nodes.length, snapshot]);
+
+  // Viewport culling: use containerSize state (avoids ref read during render)
+  const renderedNodes = containerSize.width > 0
+    ? visibleNodes(state.nodes, state.panX, state.panY, state.zoom, containerSize.width, containerSize.height)
     : state.nodes;
 
   return (
@@ -419,7 +500,7 @@ export function CanvasView() {
         <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setState((s) => ({ ...s, zoom: Math.max(0.1, s.zoom / 1.2) }))}>
           <ZoomOut className="w-3.5 h-3.5" />
         </Button>
-        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={resetView}>
+        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={zoomToFit}>
           <Maximize className="w-3.5 h-3.5" />
         </Button>
       </div>
@@ -456,6 +537,7 @@ export function CanvasView() {
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
+        onDoubleClick={handleDoubleClick}
         // Wheel handled by non-passive addEventListener in useEffect
       >
         {/* Edges layer */}
@@ -544,12 +626,12 @@ export function CanvasView() {
                   nodes: s.nodes.map((n) => (n.id === id ? { ...n, text } : n)),
                 }));
               }}
-              onResize={(id, w, h) => {
+              onResize={(id, w, h, dx, dy) => {
                 setState((s) => ({
                   ...s,
                   nodes: s.nodes.map((n) =>
                     n.id === id
-                      ? { ...n, width: Math.max(50, w), height: Math.max(30, h) }
+                      ? { ...n, width: Math.max(50, w), height: Math.max(30, h), x: n.x + (dx || 0), y: n.y + (dy || 0) }
                       : n
                   ),
                 }));
@@ -581,6 +663,19 @@ export function CanvasView() {
         )}
       </div>
 
+      {/* Minimap */}
+      {state.nodes.length > 0 && (
+        <CanvasMinimap
+          nodes={state.nodes}
+          panX={state.panX}
+          panY={state.panY}
+          zoom={state.zoom}
+          containerWidth={containerSize.width}
+          containerHeight={containerSize.height}
+          onNavigate={(panX, panY) => setState((s) => ({ ...s, panX, panY }))}
+        />
+      )}
+
       {/* Zoom indicator */}
       <div className="absolute bottom-2 right-2 text-[10px] text-muted-foreground bg-background/80 backdrop-blur px-2 py-1 rounded">
         {Math.round(state.zoom * 100)}%
@@ -600,7 +695,7 @@ function CanvasNodeView({
   node: CanvasNode;
   selected: boolean;
   onTextChange: (id: string, text: string) => void;
-  onResize?: (id: string, width: number, height: number) => void;
+  onResize?: (id: string, width: number, height: number, dx?: number, dy?: number) => void;
   onResizeStart?: () => void;
   onStartEdge?: (id: string, startX: number, startY: number) => void;
 }) {
@@ -621,19 +716,35 @@ function CanvasNodeView({
     onTextChange(node.id, text);
   };
 
-  // Fix #1: Resize uses absolute width/height from start, not accumulated deltas
-  const startDragResize = (e: React.MouseEvent) => {
+  // Multi-directional resize handler
+  type ResizeDir = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
+  const startResize = (e: React.MouseEvent, dir: ResizeDir) => {
     e.stopPropagation();
     onResizeStart?.();
     const startX = e.clientX;
     const startY = e.clientY;
     const startWidth = node.width;
     const startHeight = node.height;
+    let prevDx = 0;
+    let prevDy = 0;
 
     const onMove = (me: MouseEvent) => {
-      const newWidth = startWidth + (me.clientX - startX);
-      const newHeight = startHeight + (me.clientY - startY);
-      if (onResize) onResize(node.id, newWidth, newHeight);
+      const deltaX = me.clientX - startX;
+      const deltaY = me.clientY - startY;
+      let w = startWidth;
+      let h = startHeight;
+      let frameDx = 0;
+      let frameDy = 0;
+
+      if (dir.includes("e")) w = startWidth + deltaX;
+      if (dir.includes("w")) { w = startWidth - deltaX; frameDx = deltaX - prevDx; }
+      if (dir.includes("s")) h = startHeight + deltaY;
+      if (dir.includes("n")) { h = startHeight - deltaY; frameDy = deltaY - prevDy; }
+
+      prevDx = dir.includes("w") ? deltaX : 0;
+      prevDy = dir.includes("n") ? deltaY : 0;
+
+      if (onResize) onResize(node.id, w, h, frameDx, frameDy);
     };
 
     const onUp = () => {
@@ -647,8 +758,9 @@ function CanvasNodeView({
 
   return (
     <div
-      className={`absolute bg-background border rounded-md shadow-sm transition-shadow group ${
-        selected ? "ring-2 ring-primary" : "hover:shadow-md border-border"
+      data-canvas-node
+      className={`absolute border rounded-lg shadow-sm transition-shadow group ${
+        selected ? "ring-2 ring-primary shadow-md" : "hover:shadow-md border-border"
       }`}
       style={{
         left: node.x,
@@ -656,7 +768,10 @@ function CanvasNodeView({
         width: node.width,
         height: node.height,
         zIndex: node.zIndex,
-        borderColor: node.color || undefined
+        borderColor: node.color || undefined,
+        backgroundColor: node.color
+          ? `color-mix(in srgb, ${node.color} 8%, hsl(var(--background)))`
+          : "hsl(var(--background))",
       }}
       onDoubleClick={(e) => {
         e.stopPropagation();
@@ -667,11 +782,15 @@ function CanvasNodeView({
       {/* Color indicator strip */}
       {node.color && (
         <div
-          className="absolute top-0 left-0 right-0 h-1 rounded-t-md"
+          className="absolute top-0 left-0 right-0 h-1 rounded-t-lg"
           style={{ backgroundColor: node.color }}
         />
       )}
-      <div className="p-2 h-full overflow-hidden text-xs flex flex-col">
+      {/* Type icon */}
+      <div className="absolute top-1.5 left-1.5 opacity-40 pointer-events-none">
+        {node.type === "note" ? <FileText className="w-3 h-3" /> : <Type className="w-3 h-3" />}
+      </div>
+      <div className="p-2 pt-3 h-full overflow-hidden text-xs flex flex-col">
         {editing ? (
           <textarea
             ref={inputRef}
@@ -695,21 +814,25 @@ function CanvasNodeView({
         )}
       </div>
       
-      {/* Resize handle */}
+      {/* Edge connection handles - visible on hover (not just when selected) */}
+      <div className="absolute left-1/2 -top-2 w-3 h-3 -translate-x-1/2 cursor-crosshair opacity-0 group-hover:opacity-100 transition-opacity bg-primary/20 hover:bg-primary rounded-full border border-primary/40" onMouseDown={(e) => { e.stopPropagation(); onStartEdge?.(node.id, e.clientX, e.clientY); }} />
+      <div className="absolute left-1/2 -bottom-2 w-3 h-3 -translate-x-1/2 cursor-crosshair opacity-0 group-hover:opacity-100 transition-opacity bg-primary/20 hover:bg-primary rounded-full border border-primary/40" onMouseDown={(e) => { e.stopPropagation(); onStartEdge?.(node.id, e.clientX, e.clientY); }} />
+      <div className="absolute -left-2 top-1/2 w-3 h-3 -translate-y-1/2 cursor-crosshair opacity-0 group-hover:opacity-100 transition-opacity bg-primary/20 hover:bg-primary rounded-full border border-primary/40" onMouseDown={(e) => { e.stopPropagation(); onStartEdge?.(node.id, e.clientX, e.clientY); }} />
+      <div className="absolute -right-2 top-1/2 w-3 h-3 -translate-y-1/2 cursor-crosshair opacity-0 group-hover:opacity-100 transition-opacity bg-primary/20 hover:bg-primary rounded-full border border-primary/40" onMouseDown={(e) => { e.stopPropagation(); onStartEdge?.(node.id, e.clientX, e.clientY); }} />
+
+      {/* Resize handles - visible when selected */}
       {selected && (
         <>
-          <div
-            className="absolute right-0 bottom-0 w-3 h-3 cursor-nwse-resize opacity-0 group-hover:opacity-100 transition-opacity"
-            onMouseDown={startDragResize}
-          >
-            <div className="absolute right-1 bottom-1 w-1.5 h-1.5 bg-primary rounded-full" />
-          </div>
-          
-          {/* Edge connection handles */}
-          <div className="absolute left-1/2 -top-2 w-3 h-3 -translate-x-1/2 cursor-crosshair opacity-0 group-hover:opacity-100 bg-primary/20 hover:bg-primary rounded-full" onMouseDown={(e) => { e.stopPropagation(); onStartEdge?.(node.id, e.clientX, e.clientY); }} />
-          <div className="absolute left-1/2 -bottom-2 w-3 h-3 -translate-x-1/2 cursor-crosshair opacity-0 group-hover:opacity-100 bg-primary/20 hover:bg-primary rounded-full" onMouseDown={(e) => { e.stopPropagation(); onStartEdge?.(node.id, e.clientX, e.clientY); }} />
-          <div className="absolute -left-2 top-1/2 w-3 h-3 -translate-y-1/2 cursor-crosshair opacity-0 group-hover:opacity-100 bg-primary/20 hover:bg-primary rounded-full" onMouseDown={(e) => { e.stopPropagation(); onStartEdge?.(node.id, e.clientX, e.clientY); }} />
-          <div className="absolute -right-2 top-1/2 w-3 h-3 -translate-y-1/2 cursor-crosshair opacity-0 group-hover:opacity-100 bg-primary/20 hover:bg-primary rounded-full" onMouseDown={(e) => { e.stopPropagation(); onStartEdge?.(node.id, e.clientX, e.clientY); }} />
+          {/* Corner handles */}
+          <div className="absolute -right-1 -bottom-1 w-2.5 h-2.5 cursor-nwse-resize opacity-0 group-hover:opacity-100 transition-opacity bg-primary rounded-full border border-background" onMouseDown={(e) => startResize(e, "se")} />
+          <div className="absolute -left-1 -bottom-1 w-2.5 h-2.5 cursor-nesw-resize opacity-0 group-hover:opacity-100 transition-opacity bg-primary rounded-full border border-background" onMouseDown={(e) => startResize(e, "sw")} />
+          <div className="absolute -right-1 -top-1 w-2.5 h-2.5 cursor-nesw-resize opacity-0 group-hover:opacity-100 transition-opacity bg-primary rounded-full border border-background" onMouseDown={(e) => startResize(e, "ne")} />
+          <div className="absolute -left-1 -top-1 w-2.5 h-2.5 cursor-nwse-resize opacity-0 group-hover:opacity-100 transition-opacity bg-primary rounded-full border border-background" onMouseDown={(e) => startResize(e, "nw")} />
+          {/* Edge handles */}
+          <div className="absolute right-0 top-1/2 w-1.5 h-4 -translate-y-1/2 translate-x-0.5 cursor-ew-resize opacity-0 group-hover:opacity-100 transition-opacity bg-primary/60 rounded-full" onMouseDown={(e) => startResize(e, "e")} />
+          <div className="absolute left-0 top-1/2 w-1.5 h-4 -translate-y-1/2 -translate-x-0.5 cursor-ew-resize opacity-0 group-hover:opacity-100 transition-opacity bg-primary/60 rounded-full" onMouseDown={(e) => startResize(e, "w")} />
+          <div className="absolute bottom-0 left-1/2 h-1.5 w-4 -translate-x-1/2 translate-y-0.5 cursor-ns-resize opacity-0 group-hover:opacity-100 transition-opacity bg-primary/60 rounded-full" onMouseDown={(e) => startResize(e, "s")} />
+          <div className="absolute top-0 left-1/2 h-1.5 w-4 -translate-x-1/2 -translate-y-0.5 cursor-ns-resize opacity-0 group-hover:opacity-100 transition-opacity bg-primary/60 rounded-full" onMouseDown={(e) => startResize(e, "n")} />
         </>
       )}
     </div>
@@ -722,5 +845,100 @@ function CanvasBadge({ children }: { children: React.ReactNode }) {
     <span className="text-[10px] px-1.5 py-0.5 rounded border bg-background font-normal">
       {children}
     </span>
+  );
+}
+
+/** Minimap showing all nodes and the current viewport rectangle. */
+function CanvasMinimap({
+  nodes,
+  panX,
+  panY,
+  zoom,
+  containerWidth,
+  containerHeight,
+  onNavigate,
+}: {
+  nodes: CanvasNode[];
+  panX: number;
+  panY: number;
+  zoom: number;
+  containerWidth: number;
+  containerHeight: number;
+  onNavigate: (panX: number, panY: number) => void;
+}) {
+  const MINIMAP_W = 150;
+  const MINIMAP_H = 100;
+  const PADDING = 20;
+
+  // Compute bounding box of all nodes
+  const minX = Math.min(...nodes.map((n) => n.x));
+  const minY = Math.min(...nodes.map((n) => n.y));
+  const maxX = Math.max(...nodes.map((n) => n.x + n.width));
+  const maxY = Math.max(...nodes.map((n) => n.y + n.height));
+  const contentW = maxX - minX + PADDING * 2;
+  const contentH = maxY - minY + PADDING * 2;
+
+  // Scale to fit minimap
+  const scale = Math.min(MINIMAP_W / contentW, MINIMAP_H / contentH);
+
+  // Viewport rectangle in world coords
+  const vpWorldLeft = -panX / zoom;
+  const vpWorldTop = -panY / zoom;
+  const vpWorldW = containerWidth / zoom;
+  const vpWorldH = containerHeight / zoom;
+
+  // Convert viewport to minimap coords
+  const vpX = (vpWorldLeft - minX + PADDING) * scale;
+  const vpY = (vpWorldTop - minY + PADDING) * scale;
+  const vpW = vpWorldW * scale;
+  const vpH = vpWorldH * scale;
+
+  const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    // Convert minimap click to world coords
+    const worldX = mx / scale + minX - PADDING;
+    const worldY = my / scale + minY - PADDING;
+    // Center viewport on that world position
+    const newPanX = -(worldX - containerWidth / (2 * zoom)) * zoom;
+    const newPanY = -(worldY - containerHeight / (2 * zoom)) * zoom;
+    onNavigate(newPanX, newPanY);
+  };
+
+  return (
+    <div
+      className="absolute bottom-2 left-2 rounded border bg-background/90 backdrop-blur overflow-hidden cursor-pointer"
+      style={{ width: MINIMAP_W, height: MINIMAP_H }}
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={handleClick}
+    >
+      {/* Node dots */}
+      {nodes.map((node) => (
+        <div
+          key={node.id}
+          className="absolute rounded-sm"
+          style={{
+            left: (node.x - minX + PADDING) * scale,
+            top: (node.y - minY + PADDING) * scale,
+            width: Math.max(3, node.width * scale),
+            height: Math.max(2, node.height * scale),
+            backgroundColor: node.color || "hsl(var(--muted-foreground))",
+            opacity: 0.7,
+          }}
+        />
+      ))}
+      {/* Viewport rectangle */}
+      <div
+        className="absolute border border-primary/60 bg-primary/10 rounded-sm"
+        style={{
+          left: Math.max(0, vpX),
+          top: Math.max(0, vpY),
+          width: Math.min(vpW, MINIMAP_W),
+          height: Math.min(vpH, MINIMAP_H),
+        }}
+      />
+    </div>
   );
 }
