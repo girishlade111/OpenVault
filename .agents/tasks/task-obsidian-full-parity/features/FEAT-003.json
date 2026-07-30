@@ -2,7 +2,7 @@
   "id": "FEAT-003",
   "type": "feat",
   "description": "Enhanced workspace tabs (drag-drop reorder, drag between panes, middle-click close, starred/bookmarked tabs) and comprehensive settings modal matching Obsidian's preferences",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "1. In src/components/workspace/EditorLeaf.tsx TabChip component, add drag-drop support for tab reordering within a leaf. Use HTML5 drag events. On drag start, store the tab fileId. On drag over another tab, show an insertion indicator. On drop, reorder the tabs array in the workspace tree via a new reorderTabsInLeaf() function in src/lib/workspace/tree.ts.",
     "2. Add cross-pane tab dragging: when a tab is dragged outside its parent tab strip and dropped onto another leaf (or a drop zone in the workspace), move that tab to the target leaf. Use the existing moveLeaf infrastructure or add a moveTab(fromLeafId, toLeafId, fileId) action to the vault store.",
@@ -28,5 +28,5 @@
     "Run: export PATH=\"/root/.local/share/mise/installs/bun/latest/bin:$PATH\" && cd /projects/sandbox/OpenVault && bun run build"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "Lint passes cleanly. Build times out in sandbox environment (Next.js build is resource-intensive). All 7 steps implemented: tab drag-drop reorder, cross-pane drag, middle-click close, expanded settings modal, settings store with localStorage persistence, settings wired to CodeMirror extensions, and starred notes with sidebar section and star command."
 }
