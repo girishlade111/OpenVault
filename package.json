@@ -13,7 +13,12 @@
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset",
     "dev:desktop": "concurrently \"next dev\" \"wait-on http://localhost:3000 && electron .\"",
-    "build:desktop": "next build && electron-builder"
+    "build:desktop": "next build && electron-builder",
+    "release:desktop": "next build && electron-builder --publish always"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/girishlade111/OpenVault.git"
   },
   "build": {
     "appId": "com.vault.app",
@@ -26,8 +31,11 @@
       "out/**/*"
     ],
     "win": {
-      "target": "nsis"
-    }
+      "target": "portable"
+    },
+    "publish": [
+      "github"
+    ]
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.0",
