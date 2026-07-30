@@ -59,8 +59,6 @@ export function GraphView() {
   const layout = useMemo<GraphLayout | null>(() => {
     if (!index || !manifest) return null;
     const layout = buildGraphLayout(index, labels);
-    // Run initial stabilization for a settled layout.
-    stabilize(layout, undefined, 200);
     return layout;
   }, [index, manifest, labels, resetNonce]);
 

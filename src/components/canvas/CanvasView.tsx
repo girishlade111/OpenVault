@@ -319,10 +319,6 @@ function CanvasNodeView({
     }
   }, [editing]);
 
-  useEffect(() => {
-    setText(node.text);
-  }, [node.text]);
-
   const commit = () => {
     setEditing(false);
     onTextChange(node.id, text);
@@ -365,6 +361,7 @@ function CanvasNodeView({
       }}
       onDoubleClick={(e) => {
         e.stopPropagation();
+        setText(node.text);
         setEditing(true);
       }}
     >
@@ -381,7 +378,6 @@ function CanvasNodeView({
                 commit();
               }
               if (e.key === "Escape") {
-                setText(node.text);
                 setEditing(false);
               }
             }}
