@@ -35,6 +35,8 @@ interface RowProps {
   depth: number;
 }
 
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger, ContextMenuSeparator } from "@/components/ui/context-menu";
+
 function TreeRow({ node, depth }: RowProps) {
   const manifest = useVaultStore((s) => s.manifest);
   const collapsed = useVaultStore((s) => s.collapsedFolders);
@@ -55,34 +57,58 @@ function TreeRow({ node, depth }: RowProps) {
 
   return (
     <>
-      <button
-        type="button"
-        onClick={handleClick}
-        className={cn(
-          "w-full flex items-center gap-1.5 h-7 pr-2 text-sm rounded-sm hover:bg-accent/60 transition-colors text-left",
-          isActive && "bg-accent text-accent-foreground"
-        )}
-        style={{ paddingLeft: `${depth * 12 + 4}px` }}
-        title={node.path}
-        aria-current={isActive ? "page" : undefined}
-      >
-        {isFolder ? (
-          isCollapsed ? (
-            <ChevronRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-          ) : (
-            <ChevronDown className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-          )
-        ) : (
-          <span className="w-3.5 shrink-0" />
-        )}
-        {nodeIcon(node, !isCollapsed)}
-        <span className="truncate flex-1">{node.name}</span>
-        {isFolder && node.childIds.length > 0 && (
-          <span className="text-[10px] text-muted-foreground tabular-nums">
-            {node.childIds.length}
-          </span>
-        )}
-      </button>
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <button
+            type="button"
+            onClick={handleClick}
+            className={cn(
+              "w-full flex items-center gap-1.5 h-7 pr-2 text-sm rounded-sm hover:bg-accent/60 transition-colors text-left",
+              isActive && "bg-accent text-accent-foreground"
+            )}
+            style={{ paddingLeft: `${depth * 12 + 4}px` }}
+            title={node.path}
+            aria-current={isActive ? "page" : undefined}
+          >
+            {isFolder ? (
+              isCollapsed ? (
+                <ChevronRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+              ) : (
+                <ChevronDown className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+              )
+            ) : (
+              <span className="w-3.5 shrink-0" />
+            )}
+            {nodeIcon(node, !isCollapsed)}
+            <span className="truncate flex-1">{node.name}</span>
+            {isFolder && node.childIds.length > 0 && (
+              <span className="text-[10px] text-muted-foreground tabular-nums">
+                {node.childIds.length}
+              </span>
+            )}
+          </button>
+        </ContextMenuTrigger>
+        <ContextMenuContent className="w-48">
+          <ContextMenuItem onClick={() => {
+            if (isFolder) toggleFolder(node.id);
+            else openFile(node.id);
+          }}>
+            Open
+          </ContextMenuItem>
+          {isFolder && (
+            <ContextMenuItem onClick={() => alert("New File in folder not implemented")}>
+              New File
+            </ContextMenuItem>
+          )}
+          <ContextMenuSeparator />
+          <ContextMenuItem onClick={() => alert("Rename not implemented")}>
+            Rename
+          </ContextMenuItem>
+          <ContextMenuItem className="text-destructive" onClick={() => alert("Delete not implemented")}>
+            Delete
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
       {isFolder && !isCollapsed && (
         <>
           {node.childIds

@@ -62,8 +62,29 @@ export function GraphView() {
     // Run initial stabilization for a settled layout.
     stabilize(layout, undefined, 200);
     return layout;
-  
   }, [index, manifest, labels, resetNonce]);
+
+  const nodeColors = useMemo(() => {
+    if (!index || !manifest) return new Map<string, string>();
+    const map = new Map<string, string>();
+    const palette = [
+      "#ef4444", "#3b82f6", "#10b981", "#f59e0b",
+      "#8b5cf6", "#ec4899", "#14b8a6", "#f97316"
+    ];
+    const tagColors = new Map<string, string>();
+    
+    for (const fileId of index.metadata.keys()) {
+      const meta = index.metadata.get(fileId);
+      if (meta && meta.tags.length > 0) {
+        const firstTag = meta.tags[0];
+        if (!tagColors.has(firstTag)) {
+          tagColors.set(firstTag, palette[tagColors.size % palette.length]);
+        }
+        map.set(fileId, tagColors.get(firstTag)!);
+      }
+    }
+    return map;
+  }, [index, manifest]);
 
   // Filter the visible nodes.
   const highlightedIds = useMemo(() => {
@@ -167,13 +188,13 @@ export function GraphView() {
         </TooltipProvider>
       </div>
 
-      {/* Canvas */}
       <div className="flex-1 min-h-0">
         <GraphCanvas
           layout={layout}
           simulate={simulate}
           activeFileId={activeFileId}
           highlightedIds={highlightedIds}
+          nodeColors={nodeColors}
           onNodeClick={(fileId) => openFile(fileId)}
         />
       </div>

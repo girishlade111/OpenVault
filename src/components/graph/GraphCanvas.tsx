@@ -18,6 +18,8 @@ interface GraphCanvasProps {
   simulate?: boolean;
   /** Node color (CSS color string). */
   nodeColor?: string;
+  /** Per-node colors (overrides default nodeColor). */
+  nodeColors?: Map<FileId, string>;
   /** Active node color. */
   activeColor?: string;
   /** Edge color. */
@@ -50,6 +52,7 @@ export function GraphCanvas({
   onNodeClick,
   simulate = true,
   nodeColor = "hsl(var(--primary))",
+  nodeColors,
   activeColor = "#f59e0b",
   edgeColor = "hsl(var(--muted-foreground) / 0.3)",
   backgroundColor = "transparent",
@@ -161,16 +164,17 @@ export function GraphCanvas({
       // Node circle.
       ctx.beginPath();
       ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
+      const c = nodeColors?.get(node.id) || nodeColor;
       if (isActive) {
         ctx.fillStyle = activeColor;
       } else if (isHovered) {
-        ctx.fillStyle = nodeColor;
+        ctx.fillStyle = c;
         ctx.globalAlpha = 1;
       } else if (highlightedIds && !isHighlighted) {
-        ctx.fillStyle = nodeColor;
+        ctx.fillStyle = c;
         ctx.globalAlpha = 0.2;
       } else {
-        ctx.fillStyle = nodeColor;
+        ctx.fillStyle = c;
         ctx.globalAlpha = 0.8;
       }
       ctx.fill();
@@ -187,7 +191,7 @@ export function GraphCanvas({
     }
 
     ctx.restore();
-  }, [layout, activeFileId, hoveredId, highlightedIds, nodeColor, activeColor, edgeColor, backgroundColor, showAllLabels]);
+  }, [layout, activeFileId, hoveredId, highlightedIds, nodeColor, nodeColors, activeColor, edgeColor, backgroundColor, showAllLabels]);
 
   // Animation loop: tick simulation + render.
   useEffect(() => {

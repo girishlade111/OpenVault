@@ -195,6 +195,54 @@ export function CanvasView() {
         onMouseLeave={handleMouseUp}
         onWheel={handleWheel}
       >
+        {/* Edges layer */}
+        <svg
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            width: "100%",
+            height: "100%",
+            transform: `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`,
+            transformOrigin: "0 0",
+          }}
+        >
+          {state.edges.map((edge) => {
+            const sourceNode = state.nodes.find((n) => n.id === edge.source);
+            const targetNode = state.nodes.find((n) => n.id === edge.target);
+            if (!sourceNode || !targetNode) return null;
+            
+            const sx = sourceNode.x + sourceNode.width / 2;
+            const sy = sourceNode.y + sourceNode.height / 2;
+            const tx = targetNode.x + targetNode.width / 2;
+            const ty = targetNode.y + targetNode.height / 2;
+            
+            return (
+              <g key={edge.id}>
+                <line
+                  x1={sx}
+                  y1={sy}
+                  x2={tx}
+                  y2={ty}
+                  stroke={edge.color || "hsl(var(--muted-foreground))"}
+                  strokeWidth="2"
+                  markerEnd="url(#arrowhead)"
+                />
+              </g>
+            );
+          })}
+          <defs>
+            <marker
+              id="arrowhead"
+              markerWidth="10"
+              markerHeight="7"
+              refX="9"
+              refY="3.5"
+              orient="auto"
+            >
+              <polygon points="0 0, 10 3.5, 0 7" fill="hsl(var(--muted-foreground))" />
+            </marker>
+          </defs>
+        </svg>
+
         {/* Nodes layer (transformed by pan/zoom) */}
         <div
           className="absolute inset-0"
@@ -208,14 +256,21 @@ export function CanvasView() {
               key={node.id}
               node={node}
               selected={state.selected.includes(node.id)}
-              onDoubleClick={() => {
-                const text = window.prompt("Edit text:", node.text);
-                if (text !== null) {
-                  setState((s) => ({
-                    ...s,
-                    nodes: s.nodes.map((n) => (n.id === node.id ? { ...n, text } : n)),
-                  }));
-                }
+              onTextChange={(id, text) => {
+                setState((s) => ({
+                  ...s,
+                  nodes: s.nodes.map((n) => (n.id === id ? { ...n, text } : n)),
+                }));
+              }}
+              onResize={(id, dx, dy) => {
+                setState((s) => ({
+                  ...s,
+                  nodes: s.nodes.map((n) =>
+                    n.id === id
+                      ? { ...n, width: Math.max(50, n.width + dx), height: Math.max(30, n.height + dy) }
+                      : n
+                  ),
+                }));
               }}
             />
           ))}
@@ -244,16 +299,61 @@ export function CanvasView() {
 function CanvasNodeView({
   node,
   selected,
-  onDoubleClick,
+  onTextChange,
+  onResize,
 }: {
   node: CanvasNode;
   selected: boolean;
-  onDoubleClick: () => void;
+  onTextChange: (id: string, text: string) => void;
+  onResize?: (id: string, dx: number, dy: number) => void;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(node.text);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus();
+      // Move cursor to end
+      inputRef.current.setSelectionRange(inputRef.current.value.length, inputRef.current.value.length);
+    }
+  }, [editing]);
+
+  useEffect(() => {
+    setText(node.text);
+  }, [node.text]);
+
+  const commit = () => {
+    setEditing(false);
+    onTextChange(node.id, text);
+  };
+
+  const startDragResize = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startWidth = node.width;
+    const startHeight = node.height;
+
+    const onMove = (me: MouseEvent) => {
+      const dx = me.clientX - startX;
+      const dy = me.clientY - startY;
+      if (onResize) onResize(node.id, dx, dy);
+    };
+
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
   return (
     <div
-      className={`absolute bg-background border rounded-md shadow-sm transition-shadow ${
-        selected ? "ring-2 ring-primary" : "hover:shadow-md"
+      className={`absolute bg-background border rounded-md shadow-sm transition-shadow group ${
+        selected ? "ring-2 ring-primary" : "hover:shadow-md border-border"
       }`}
       style={{
         left: node.x,
@@ -261,18 +361,47 @@ function CanvasNodeView({
         width: node.width,
         height: node.height,
         zIndex: node.zIndex,
+        borderColor: node.color || undefined
       }}
-      onDoubleClick={onDoubleClick}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        setEditing(true);
+      }}
     >
-      <div className="p-2 h-full overflow-hidden text-xs">
-        {node.type === "note" ? (
-          <div className="font-mono whitespace-pre-wrap text-muted-foreground">
+      <div className="p-2 h-full overflow-hidden text-xs flex flex-col">
+        {editing ? (
+          <textarea
+            ref={inputRef}
+            className="flex-1 w-full bg-transparent resize-none outline-none font-mono"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                commit();
+              }
+              if (e.key === "Escape") {
+                setText(node.text);
+                setEditing(false);
+              }
+            }}
+          />
+        ) : (
+          <div className={`whitespace-pre-wrap flex-1 ${node.type === "note" ? "font-mono text-muted-foreground" : ""}`}>
             {node.text}
           </div>
-        ) : (
-          <div className="whitespace-pre-wrap">{node.text}</div>
         )}
       </div>
+      
+      {/* Resize handle */}
+      {selected && (
+        <div
+          className="absolute right-0 bottom-0 w-3 h-3 cursor-nwse-resize opacity-0 group-hover:opacity-100 transition-opacity"
+          onMouseDown={startDragResize}
+        >
+          <div className="absolute right-1 bottom-1 w-1.5 h-1.5 bg-primary rounded-full" />
+        </div>
+      )}
     </div>
   );
 }

@@ -44,11 +44,15 @@ function TabChip({ leafId, tab }: { leafId: string; tab: EditorTab }) {
   return (
     <div
       className={cn(
-        "group flex items-center gap-1 h-8 pl-3 pr-1.5 border-r cursor-default min-w-0 max-w-[18ch]",
+        "group flex items-center gap-1.5 h-full pl-3 pr-2 cursor-default min-w-[120px] max-w-[240px] relative shrink-0 border-x border-t rounded-t-md transition-colors",
         active
-          ? "bg-background text-foreground"
-          : "bg-muted/40 text-muted-foreground hover:bg-muted/70"
+          ? "bg-background text-foreground border-border z-10 before:absolute before:top-[-1px] before:inset-x-0 before:h-[2px] before:bg-primary before:rounded-t-md"
+          : "bg-transparent text-muted-foreground border-transparent hover:bg-background/50 hover:text-foreground"
       )}
+      style={{
+        marginBottom: active ? "-1px" : "0",
+        borderBottom: active ? "1px solid var(--background)" : undefined,
+      }}
       onClick={() => setActive(leafId, tab.fileId)}
       role="tab"
       aria-selected={active}
@@ -56,7 +60,7 @@ function TabChip({ leafId, tab }: { leafId: string; tab: EditorTab }) {
       <Button
         variant="ghost"
         size="sm"
-        className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100"
+        className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 shrink-0"
         onClick={(e) => {
           e.stopPropagation();
           togglePin(leafId, tab.fileId);
@@ -65,22 +69,25 @@ function TabChip({ leafId, tab }: { leafId: string; tab: EditorTab }) {
       >
         <Pin className={cn("w-3 h-3", tab.pinned && "fill-current text-primary")} />
       </Button>
-      <FileText className="w-3.5 h-3.5 shrink-0 text-sky-500" />
-      <span className="truncate text-sm">{node.name}</span>
+      <FileText className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+      <span className="truncate text-sm flex-1">{node.name}</span>
       {tab.dirty && (
         <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" aria-label="Unsaved" />
       )}
       <Button
         variant="ghost"
         size="sm"
-        className="h-5 w-5 p-0 shrink-0"
+        className={cn(
+          "h-5 w-5 p-0 shrink-0",
+          active ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+        )}
         onClick={(e) => {
           e.stopPropagation();
           closeTab(leafId, tab.fileId);
         }}
         aria-label="Close tab"
       >
-        <X className="w-3 h-3" />
+        <X className="w-3.5 h-3.5" />
       </Button>
     </div>
   );
@@ -143,9 +150,11 @@ function LeafContent({ leafId, activeTabId }: { leafId: string; activeTabId: str
   if (!node || node.kind !== "file") return <LeafEmptyState leafId={leafId} />;
   return (
     <div className="h-full flex flex-col">
-      <div className="border-b px-6 py-3 flex items-baseline gap-2 shrink-0">
-        <h2 className="text-base font-medium truncate">{node.name}</h2>
-        <span className="text-xs text-muted-foreground truncate">{node.path}</span>
+      {/* File title header, mimicking Obsidian's inline title */}
+      <div className="px-10 py-6 shrink-0 group">
+        <h1 className="text-3xl font-bold tracking-tight text-foreground/90 group-hover:text-foreground transition-colors">
+          {node.name.replace(/\.md$/, "")}
+        </h1>
       </div>
       {node.isMarkdown ? (
         <MarkdownEditorPane fileId={node.id} />
@@ -225,9 +234,9 @@ export function EditorLeaf({ leaf }: { leaf: LeafNode }) {
       }}
     >
       {/* Leaf header: tab strip + split/close controls. */}
-      <div className="flex items-stretch h-9 border-b bg-muted/30 shrink-0">
+      <div className="flex items-stretch h-10 border-b bg-sidebar/50 pt-1 px-1 shrink-0">
         <div
-          className="flex items-stretch overflow-x-auto flex-1 min-w-0"
+          className="flex items-stretch overflow-x-auto overflow-y-hidden flex-1 min-w-0 no-scrollbar relative"
           role="tablist"
           onMouseDown={() => setActiveLeaf(leaf.id)}
         >
@@ -239,7 +248,7 @@ export function EditorLeaf({ leaf }: { leaf: LeafNode }) {
             tabs.map((t) => <TabChip key={t.fileId} leafId={leaf.id} tab={t} />)
           )}
         </div>
-        <div className="flex items-center gap-0.5 px-1 border-l shrink-0">
+        <div className="flex items-center gap-1 px-2 shrink-0 border-b border-border ml-auto">
           <TooltipProvider delayDuration={300}>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -313,11 +322,11 @@ function GraphLeafHeader({ leafId, label = "Graph View" }: { leafId: string; lab
   const splitLeaf = useVaultStore((s) => s.splitLeaf);
   const closeLeaf = useVaultStore((s) => s.closeLeaf);
   return (
-    <div className="flex items-stretch h-9 border-b bg-muted/30 shrink-0">
-      <div className="flex items-center px-3 text-xs font-medium italic text-muted-foreground flex-1">
+    <div className="flex items-stretch h-10 border-b bg-sidebar/50 pt-1 px-2 shrink-0">
+      <div className="flex items-center px-3 text-sm font-medium text-muted-foreground flex-1 border-b border-border">
         {label}
       </div>
-      <div className="flex items-center gap-0.5 px-1 border-l shrink-0">
+      <div className="flex items-center gap-1 px-1 shrink-0 border-b border-border">
         <TooltipProvider delayDuration={300}>
           <Tooltip>
             <TooltipTrigger asChild>
