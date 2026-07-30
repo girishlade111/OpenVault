@@ -24,7 +24,9 @@ import type {
   FileId,
   VaultHandle,
   VaultManifest,
+  VaultNode,
 } from "@/lib/vault/types";
+import { makeFileId } from "@/lib/vault/id";
 import {
   isFsAccessSupported,
   pickVaultDirectory,
@@ -117,6 +119,17 @@ interface VaultState {
   togglePinTab: (leafId: NodeId, fileId: FileId) => void;
   setLeafScroll: (leafId: NodeId, scroll: { top: number; left: number }) => void;
   setLeafCursor: (leafId: NodeId, cursor: { line: number; ch: number } | null) => void;
+
+  // --- actions: file tree CRUD -----------------------------------------------
+  createFile: (parentFolderId: FileId, name: string) => FileId | null;
+  createFolder: (parentFolderId: FileId, name: string) => FileId | null;
+  renameNode: (fileId: FileId, newName: string) => boolean;
+  deleteNode: (fileId: FileId) => void;
+  moveNode: (fileId: FileId, newParentId: FileId) => void;
+
+  // --- actions: file tree sort / filter ------------------------------------
+  sortMode: "name-asc" | "name-desc" | "mtime-desc" | "mtime-asc" | "ctime-desc";
+  setSortMode: (mode: VaultState["sortMode"]) => void;
 
   // --- actions: ui ----------------------------------------------------------
   toggleLeftSidebar: () => void;
@@ -453,6 +466,458 @@ export const useVaultStore = create<VaultState>((set, get) => ({
 
   setLeafCursor: (leafId, cursor) => {
     applyWorkspace(set, get, (w) => setLeafCursor(w, leafId, cursor));
+  },
+
+  // --- file tree CRUD -------------------------------------------------------
+  sortMode: "name-asc",
+  setSortMode: (mode) => set({ sortMode: mode }),
+
+  createFile: (parentFolderId, name) => {
+    const { manifest, handle } = get();
+    if (!manifest) return null;
+    const parent = manifest.nodes[parentFolderId];
+    if (!parent || parent.kind !== "folder") return null;
+
+    const filePath = parent.path ? `${parent.path}/${name}` : name;
+    // Prevent duplicates
+    if (manifest.pathIndex[filePath]) return null;
+
+    const id = makeFileId(filePath);
+    const ext = name.split(".").pop()?.toLowerCase() ?? null;
+    const node: VaultNode = {
+      id,
+      name,
+      path: filePath,
+      kind: "file",
+      parentId: parentFolderId,
+      childIds: [],
+      extension: ext,
+      size: 0,
+      mtime: Date.now(),
+      isMarkdown: ext === "md" || ext === "markdown",
+      isImage: false,
+      isCanvas: ext === "canvas",
+    };
+
+    const nextNodes = { ...manifest.nodes, [id]: node };
+    const nextParent = { ...parent, childIds: [...parent.childIds, id] };
+    nextNodes[parentFolderId] = nextParent;
+
+    // Sort parent childIds: folders first, then files, both alpha
+    nextParent.childIds.sort((a, b) => {
+      const A = nextNodes[a];
+      const B = nextNodes[b];
+      if (!A || !B) return 0;
+      if (A.kind !== B.kind) return A.kind === "folder" ? -1 : 1;
+      return A.name.localeCompare(B.name, undefined, { sensitivity: "base", numeric: true });
+    });
+
+    const nextManifest: VaultManifest = {
+      ...manifest,
+      nodes: nextNodes,
+      pathIndex: { ...manifest.pathIndex, [filePath]: id },
+      counts: {
+        ...manifest.counts,
+        files: manifest.counts.files + 1,
+        markdown: manifest.counts.markdown + (node.isMarkdown ? 1 : 0),
+      },
+    };
+
+    // For demo vault, also seed empty content
+    if (handle?.kind === "demo") {
+      const nextCache = { ...get().contentCache, [id]: "" };
+      set({ manifest: nextManifest, contentCache: nextCache });
+    } else {
+      set({ manifest: nextManifest });
+    }
+    scheduleSave(get);
+    return id;
+  },
+
+  createFolder: (parentFolderId, name) => {
+    const { manifest } = get();
+    if (!manifest) return null;
+    const parent = manifest.nodes[parentFolderId];
+    if (!parent || parent.kind !== "folder") return null;
+
+    const folderPath = parent.path ? `${parent.path}/${name}` : name;
+    if (manifest.pathIndex[folderPath]) return null;
+
+    const id = makeFileId(folderPath);
+    const node: VaultNode = {
+      id,
+      name,
+      path: folderPath,
+      kind: "folder",
+      parentId: parentFolderId,
+      childIds: [],
+      extension: null,
+      size: 0,
+      mtime: Date.now(),
+      isMarkdown: false,
+      isImage: false,
+      isCanvas: false,
+    };
+
+    const nextNodes = { ...manifest.nodes, [id]: node };
+    const nextParent = { ...parent, childIds: [...parent.childIds, id] };
+    nextNodes[parentFolderId] = nextParent;
+
+    nextParent.childIds.sort((a, b) => {
+      const A = nextNodes[a];
+      const B = nextNodes[b];
+      if (!A || !B) return 0;
+      if (A.kind !== B.kind) return A.kind === "folder" ? -1 : 1;
+      return A.name.localeCompare(B.name, undefined, { sensitivity: "base", numeric: true });
+    });
+
+    const nextManifest: VaultManifest = {
+      ...manifest,
+      nodes: nextNodes,
+      pathIndex: { ...manifest.pathIndex, [folderPath]: id },
+      counts: {
+        ...manifest.counts,
+        folders: manifest.counts.folders + 1,
+      },
+    };
+    set({ manifest: nextManifest });
+    scheduleSave(get);
+    return id;
+  },
+
+  renameNode: (fileId, newName) => {
+    const { manifest } = get();
+    if (!manifest) return false;
+    const node = manifest.nodes[fileId];
+    if (!node || !node.parentId) return false; // Can't rename root
+
+    const parent = manifest.nodes[node.parentId];
+    if (!parent) return false;
+
+    const newPath = parent.path ? `${parent.path}/${newName}` : newName;
+    // Don't allow renaming to existing path (unless same node)
+    if (manifest.pathIndex[newPath] && manifest.pathIndex[newPath] !== fileId) return false;
+
+    const newId = makeFileId(newPath);
+    const ext = node.kind === "file" ? (newName.split(".").pop()?.toLowerCase() ?? null) : null;
+
+    // Build updated path index
+    const nextPathIndex = { ...manifest.pathIndex };
+    const nextNodes = { ...manifest.nodes };
+    const nextContentCache = { ...get().contentCache };
+
+    // Helper to recursively update paths
+    const updatePaths = (nodeId: FileId, oldBasePath: string, newBasePath: string) => {
+      const n = nextNodes[nodeId];
+      if (!n) return;
+      const oldPath = n.path;
+      const updatedPath = oldPath === oldBasePath
+        ? newBasePath
+        : newBasePath + oldPath.slice(oldBasePath.length);
+      const updatedId = makeFileId(updatedPath);
+      const updatedName = nodeId === fileId ? newName : n.name;
+      const updatedExt = n.kind === "file" ? (updatedName.split(".").pop()?.toLowerCase() ?? null) : null;
+
+      // Remove old path index entry
+      delete nextPathIndex[oldPath];
+      // Remove old node
+      delete nextNodes[nodeId];
+      // Transfer content if it exists
+      if (nextContentCache[nodeId] !== undefined) {
+        nextContentCache[updatedId] = nextContentCache[nodeId];
+        delete nextContentCache[nodeId];
+      }
+
+      // Create updated node
+      const updatedNode: VaultNode = {
+        ...n,
+        id: updatedId,
+        name: updatedName,
+        path: updatedPath,
+        extension: updatedExt,
+        isMarkdown: updatedExt === "md" || updatedExt === "markdown",
+        isCanvas: updatedExt === "canvas",
+        childIds: [...n.childIds], // Will be updated with new child IDs
+      };
+      nextNodes[updatedId] = updatedNode;
+      nextPathIndex[updatedPath] = updatedId;
+
+      // Recursively update children
+      const newChildIds: FileId[] = [];
+      for (const childId of n.childIds) {
+        const child = nextNodes[childId] ?? manifest.nodes[childId];
+        if (child) {
+          const childNewPath = updatedPath ? `${updatedPath}/${child.name}` : child.name;
+          const childNewId = makeFileId(childNewPath);
+          updatePaths(childId, child.path, childNewPath);
+          // Update the child's parentId
+          const updatedChild = nextNodes[childNewId];
+          if (updatedChild) {
+            nextNodes[childNewId] = { ...updatedChild, parentId: updatedId };
+          }
+          newChildIds.push(childNewId);
+        }
+      }
+      nextNodes[updatedId] = { ...nextNodes[updatedId], childIds: newChildIds };
+    };
+
+    updatePaths(fileId, node.path, newPath);
+
+    // Update parent's childIds to reference the new id
+    const updatedParent = { ...parent, childIds: parent.childIds.map((cid) => (cid === fileId ? newId : cid)) };
+    // Re-sort
+    updatedParent.childIds.sort((a, b) => {
+      const A = nextNodes[a];
+      const B = nextNodes[b];
+      if (!A || !B) return 0;
+      if (A.kind !== B.kind) return A.kind === "folder" ? -1 : 1;
+      return A.name.localeCompare(B.name, undefined, { sensitivity: "base", numeric: true });
+    });
+    nextNodes[updatedParent.id] = updatedParent;
+
+    const nextManifest: VaultManifest = {
+      ...manifest,
+      nodes: nextNodes,
+      pathIndex: nextPathIndex,
+    };
+
+    // Update workspace tabs referencing old file ids
+    const ws = get().workspace;
+    let nextWorkspace = ws;
+    if (ws && fileId !== newId) {
+      nextWorkspace = {
+        ...ws,
+        root: mapLeaves(ws.root, (leaf) => {
+          if (leaf.view.kind !== "editor") return leaf;
+          const hasOld = leaf.view.tabs.some((t) => t.fileId === fileId);
+          if (!hasOld) return leaf;
+          return {
+            ...leaf,
+            view: {
+              ...leaf.view,
+              tabs: leaf.view.tabs.map((t) => (t.fileId === fileId ? { ...t, fileId: newId } : t)),
+              activeTabId: leaf.view.activeTabId === fileId ? newId : leaf.view.activeTabId,
+            },
+          };
+        }),
+      };
+    }
+
+    set({ manifest: nextManifest, contentCache: nextContentCache, workspace: nextWorkspace });
+    scheduleSave(get);
+    return true;
+  },
+
+  deleteNode: (fileId) => {
+    const { manifest } = get();
+    if (!manifest) return;
+    const node = manifest.nodes[fileId];
+    if (!node || !node.parentId) return; // Can't delete root
+
+    const nextNodes = { ...manifest.nodes };
+    const nextPathIndex = { ...manifest.pathIndex };
+    const nextContentCache = { ...get().contentCache };
+    let removedFiles = 0;
+    let removedFolders = 0;
+    let removedMarkdown = 0;
+
+    // Collect all node ids to remove (recursive for folders)
+    const collectIds = (nid: FileId): FileId[] => {
+      const n = nextNodes[nid];
+      if (!n) return [];
+      if (n.kind === "folder") {
+        const childResults = n.childIds.flatMap(collectIds);
+        return [nid, ...childResults];
+      }
+      return [nid];
+    };
+
+    const idsToRemove = collectIds(fileId);
+    const fileIdsToRemove = new Set<FileId>();
+
+    for (const rid of idsToRemove) {
+      const rNode = nextNodes[rid];
+      if (!rNode) continue;
+      if (rNode.kind === "file") {
+        removedFiles++;
+        if (rNode.isMarkdown) removedMarkdown++;
+        fileIdsToRemove.add(rid);
+      } else {
+        removedFolders++;
+      }
+      delete nextPathIndex[rNode.path];
+      delete nextNodes[rid];
+      delete nextContentCache[rid];
+    }
+
+    // Remove from parent's childIds
+    const parent = nextNodes[node.parentId];
+    if (parent) {
+      nextNodes[node.parentId] = {
+        ...parent,
+        childIds: parent.childIds.filter((cid) => cid !== fileId),
+      };
+    }
+
+    const nextManifest: VaultManifest = {
+      ...manifest,
+      nodes: nextNodes,
+      pathIndex: nextPathIndex,
+      counts: {
+        ...manifest.counts,
+        files: manifest.counts.files - removedFiles,
+        folders: manifest.counts.folders - removedFolders,
+        markdown: manifest.counts.markdown - removedMarkdown,
+      },
+    };
+
+    // Close all tabs for deleted files
+    const ws = get().workspace;
+    let nextWorkspace = ws;
+    if (ws && fileIdsToRemove.size > 0) {
+      nextWorkspace = {
+        ...ws,
+        root: mapLeaves(ws.root, (leaf) => {
+          if (leaf.view.kind !== "editor") return leaf;
+          const hasRemoved = leaf.view.tabs.some((t) => fileIdsToRemove.has(t.fileId));
+          if (!hasRemoved) return leaf;
+          const nextTabs = leaf.view.tabs.filter((t) => !fileIdsToRemove.has(t.fileId));
+          let nextActive = leaf.view.activeTabId;
+          if (nextActive && fileIdsToRemove.has(nextActive)) {
+            nextActive = nextTabs[0]?.fileId ?? null;
+          }
+          return {
+            ...leaf,
+            view: { ...leaf.view, tabs: nextTabs, activeTabId: nextActive },
+          };
+        }),
+      };
+    }
+
+    set({ manifest: nextManifest, contentCache: nextContentCache, workspace: nextWorkspace });
+    scheduleSave(get);
+  },
+
+  moveNode: (fileId, newParentId) => {
+    const { manifest } = get();
+    if (!manifest) return;
+    const node = manifest.nodes[fileId];
+    if (!node || !node.parentId) return;
+    if (node.parentId === newParentId) return;
+    const newParent = manifest.nodes[newParentId];
+    if (!newParent || newParent.kind !== "folder") return;
+
+    // Prevent moving a folder into itself or its descendants
+    if (node.kind === "folder") {
+      let cursor: VaultNode | null = newParent;
+      while (cursor) {
+        if (cursor.id === fileId) return;
+        cursor = cursor.parentId ? manifest.nodes[cursor.parentId] : null;
+      }
+    }
+
+    const nextNodes = { ...manifest.nodes };
+
+    // Remove from old parent
+    const oldParent = nextNodes[node.parentId];
+    if (oldParent) {
+      nextNodes[node.parentId] = {
+        ...oldParent,
+        childIds: oldParent.childIds.filter((cid) => cid !== fileId),
+      };
+    }
+
+    // Build new path
+    const newPath = newParent.path ? `${newParent.path}/${node.name}` : node.name;
+    const newId = makeFileId(newPath);
+
+    const nextPathIndex = { ...manifest.pathIndex };
+    const nextContentCache = { ...get().contentCache };
+
+    // Recursively update paths
+    const remap: Record<FileId, FileId> = {};
+    const updatePaths = (nid: FileId, oldBasePath: string, newBasePath: string) => {
+      const n = nextNodes[nid] ?? manifest.nodes[nid];
+      if (!n) return;
+      const updatedPath = n.path === oldBasePath
+        ? newBasePath
+        : newBasePath + n.path.slice(oldBasePath.length);
+      const updatedId = makeFileId(updatedPath);
+      remap[nid] = updatedId;
+
+      delete nextPathIndex[n.path];
+      delete nextNodes[nid];
+      if (nextContentCache[nid] !== undefined) {
+        nextContentCache[updatedId] = nextContentCache[nid];
+        delete nextContentCache[nid];
+      }
+
+      const updatedNode: VaultNode = {
+        ...n,
+        id: updatedId,
+        path: updatedPath,
+        parentId: nid === fileId ? newParentId : (n.parentId ? (remap[n.parentId] ?? n.parentId) : null),
+        childIds: [...n.childIds],
+      };
+      nextNodes[updatedId] = updatedNode;
+      nextPathIndex[updatedPath] = updatedId;
+
+      const newChildIds: FileId[] = [];
+      for (const childId of n.childIds) {
+        updatePaths(childId, manifest.nodes[childId]?.path ?? "", updatedPath + "/" + (manifest.nodes[childId]?.name ?? ""));
+        newChildIds.push(remap[childId] ?? childId);
+      }
+      nextNodes[updatedId] = { ...nextNodes[updatedId], childIds: newChildIds };
+    };
+
+    updatePaths(fileId, node.path, newPath);
+
+    // Add to new parent
+    const updatedNewParent = nextNodes[newParentId] ?? newParent;
+    nextNodes[newParentId] = {
+      ...updatedNewParent,
+      childIds: [...updatedNewParent.childIds, newId],
+    };
+
+    // Sort new parent childIds
+    nextNodes[newParentId].childIds.sort((a, b) => {
+      const A = nextNodes[a];
+      const B = nextNodes[b];
+      if (!A || !B) return 0;
+      if (A.kind !== B.kind) return A.kind === "folder" ? -1 : 1;
+      return A.name.localeCompare(B.name, undefined, { sensitivity: "base", numeric: true });
+    });
+
+    const nextManifest: VaultManifest = {
+      ...manifest,
+      nodes: nextNodes,
+      pathIndex: nextPathIndex,
+    };
+
+    // Update workspace tabs
+    const ws = get().workspace;
+    let nextWorkspace = ws;
+    if (ws && Object.keys(remap).length > 0) {
+      nextWorkspace = {
+        ...ws,
+        root: mapLeaves(ws.root, (leaf) => {
+          if (leaf.view.kind !== "editor") return leaf;
+          const hasOld = leaf.view.tabs.some((t) => remap[t.fileId]);
+          if (!hasOld) return leaf;
+          return {
+            ...leaf,
+            view: {
+              ...leaf.view,
+              tabs: leaf.view.tabs.map((t) => (remap[t.fileId] ? { ...t, fileId: remap[t.fileId] } : t)),
+              activeTabId: leaf.view.activeTabId && remap[leaf.view.activeTabId] ? remap[leaf.view.activeTabId] : leaf.view.activeTabId,
+            },
+          };
+        }),
+      };
+    }
+
+    set({ manifest: nextManifest, contentCache: nextContentCache, workspace: nextWorkspace });
+    scheduleSave(get);
   },
 
   // --- ui ------------------------------------------------------------------

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Search, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
+import { Search, PanelLeftClose, PanelLeftOpen, X, FilePlus } from "lucide-react";
 import { useVaultStore } from "@/store/vault-store";
 import { FileTree } from "./FileTree";
 import { SearchPanel } from "@/components/search/SearchPanel";
@@ -15,7 +15,23 @@ import {
 
 export function LeftSidebar() {
   const toggle = useVaultStore((s) => s.toggleLeftSidebar);
+  const createFile = useVaultStore((s) => s.createFile);
+  const openFile = useVaultStore((s) => s.openFile);
+  const manifest = useVaultStore((s) => s.manifest);
   const [searchMode, setSearchMode] = useState(false);
+
+  const handleNewNote = () => {
+    if (!manifest) return;
+    // Create untitled note at root, incrementing name if needed
+    let name = "Untitled.md";
+    let counter = 1;
+    while (manifest.pathIndex[name]) {
+      name = `Untitled ${counter}.md`;
+      counter++;
+    }
+    const newId = createFile(manifest.rootId, name);
+    if (newId) openFile(newId);
+  };
 
   return (
     <div className="h-full flex flex-col bg-background">
@@ -43,6 +59,22 @@ export function LeftSidebar() {
             <X className="w-3.5 h-3.5" />
           </Button>
         )}
+        <TooltipProvider delayDuration={300}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0"
+                onClick={handleNewNote}
+                aria-label="New note"
+              >
+                <FilePlus className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>New note (Ctrl+N)</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
         <TooltipProvider delayDuration={300}>
           <Tooltip>
             <TooltipTrigger asChild>

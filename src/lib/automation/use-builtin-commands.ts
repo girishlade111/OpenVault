@@ -91,6 +91,26 @@ export function useBuiltinCommands(onTogglePalette: () => void) {
       },
     });
 
+    registerCommand({
+      id: "app.new-note",
+      name: "Create new note",
+      category: "File",
+      hotkey: "Mod+N",
+      run: () => {
+        const state = useVaultStore.getState();
+        const manifest = state.manifest;
+        if (!manifest) return;
+        let name = "Untitled.md";
+        let counter = 1;
+        while (manifest.pathIndex[name]) {
+          name = `Untitled ${counter}.md`;
+          counter++;
+        }
+        const newId = state.createFile(manifest.rootId, name);
+        if (newId) state.openFile(newId);
+      },
+    });
+
     registeredRef.current = true;
 
     return () => {
@@ -102,6 +122,7 @@ export function useBuiltinCommands(onTogglePalette: () => void) {
       unregisterCommand("app.split-down");
       unregisterCommand("editor.toggle-mode");
       unregisterCommand("editor.cycle-mode");
+      unregisterCommand("app.new-note");
     };
   }, []);
 }
