@@ -1,0 +1,24 @@
+{
+  "id": "FEAT-001",
+  "type": "fix",
+  "description": "Add a 'Switch vault' button to the Ribbon so users can return to the VaultPicker after opening the demo vault (or any vault). Also add desktop-readiness polish: proper frameless window title bar drag region, app name in title bar area.",
+  "status": "in_progress",
+  "steps": [
+    "In src/components/vault/Ribbon.tsx, add a 'Switch vault' or 'Close vault' button at the very bottom of the ribbon (below Settings), using the Vault icon (lucide-react's Vault or FolderSync or ArrowLeftRight or LogOut icon). The button calls useVaultStore's closeVault() action. Add a Tooltip with side='right' saying 'Switch vault'. Use the same styling pattern as other ribbon buttons (w-10 h-10 flex items-center justify-center rounded-md text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors).",
+    "In src/components/vault/VaultApp.tsx, add a title bar drag region div at the very top of the app (inside the flex column, before the resizable panel group). This should be a thin bar (h-8) with -webkit-app-region: drag CSS for Electron frameless window dragging. It should display the vault name (from useVaultStore handle.name). Use 'no-drag' regions for any interactive elements. Only render the drag region when running in Electron (check window.electronAPI or navigator.userAgent for Electron, or simply use CSS that is harmless in browser).",
+    "In main.js, ensure the BrowserWindow config has frame: false (or keep titleBarStyle: 'hiddenInset' on macOS) for a proper frameless desktop app feel. The current config already uses titleBarStyle: 'hiddenInset' which is good for macOS. Add platform-specific handling: on Windows/Linux use frame: false with a custom title bar; on macOS keep hiddenInset.",
+    "Verify that bun run lint passes with no new errors."
+  ],
+  "acceptance_criteria": [
+    "A 'Switch vault' button is visible in the Ribbon (bottom area) that calls closeVault() when clicked",
+    "After clicking 'Switch vault', the app returns to VaultPicker where user can open a local folder or re-enter demo",
+    "The app has a proper drag region for Electron desktop window movement",
+    "bun run lint passes with zero errors"
+  ],
+  "verification": [
+    "Run bun run lint and confirm zero errors",
+    "Read the modified Ribbon.tsx and confirm it imports closeVault from useVaultStore and has a button calling it"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

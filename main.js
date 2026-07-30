@@ -6,17 +6,25 @@ const url = require('url');
 const isDev = !app.isPackaged;
 
 function createWindow() {
-  const mainWindow = new BrowserWindow({
+  const windowOptions = {
     width: 1280,
     height: 800,
-    titleBarStyle: 'hiddenInset',
     icon: path.join(__dirname, 'build/icon.ico'),
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
       webSecurity: false // Necessary for File System Access API in local origins
     }
-  });
+  };
+
+  // Platform-specific frameless window handling
+  if (process.platform === 'darwin') {
+    windowOptions.titleBarStyle = 'hiddenInset';
+  } else {
+    windowOptions.frame = false;
+  }
+
+  const mainWindow = new BrowserWindow(windowOptions);
 
   // Remove the default menu
   mainWindow.setMenuBarVisibility(false);

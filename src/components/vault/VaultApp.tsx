@@ -44,6 +44,7 @@ export function VaultApp() {
   const rightOpen = useVaultStore((s) => s.rightSidebarOpen);
   const workspace = useVaultStore((s) => s.workspace);
   const openCanvasView = useVaultStore((s) => s.openCanvasView);
+  const vaultName = useVaultStore((s) => s.handle?.name ?? 'OpenVault');
   const initTheme = useThemeStore((s) => s.init);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
@@ -69,6 +70,15 @@ export function VaultApp() {
         onOpenSettings={() => setSettingsOpen(true)}
       />
       <div className="flex-1 flex flex-col min-w-0">
+        {/* Title bar drag region for Electron frameless window (harmless in browsers) */}
+        <div
+          className="h-8 flex items-center px-4 shrink-0 bg-sidebar border-b select-none"
+          style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+        >
+          <span className="text-xs text-muted-foreground truncate">
+            {vaultName}
+          </span>
+        </div>
         <div className="flex-1 min-h-0">
           <ResizablePanelGroup direction="horizontal" autoSaveId="vault-layout">
           {leftOpen && (

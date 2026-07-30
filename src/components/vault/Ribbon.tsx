@@ -8,7 +8,8 @@ import {
   Sun,
   Moon,
   Settings,
-  Search
+  Search,
+  FolderSync,
 } from "lucide-react";
 import { useVaultStore } from "@/store/vault-store";
 import { useThemeStore } from "@/lib/theme/theme-store";
@@ -36,6 +37,7 @@ export function Ribbon({
   const openGraphView = useVaultStore((s) => s.openGraphView);
   const openFile = useVaultStore((s) => s.openFile);
   const manifest = useVaultStore((s) => s.manifest);
+  const closeVault = useVaultStore((s) => s.closeVault);
   const themeToggle = useThemeStore((s) => s.toggle);
   const themeResolved = useThemeStore((s) => s.resolved);
 
@@ -153,6 +155,18 @@ export function Ribbon({
             </button>
           </TooltipTrigger>
           <TooltipContent side="right">Settings</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={closeVault}
+              className="w-10 h-10 flex items-center justify-center rounded-md text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors"
+            >
+              <FolderSync className="w-5 h-5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right">Switch vault</TooltipContent>
         </Tooltip>
       </TooltipProvider>
     </div>
