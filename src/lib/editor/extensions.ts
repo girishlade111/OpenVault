@@ -90,7 +90,8 @@ function extractMath(text: string): { from: number; to: number; display: boolean
 }
 
 /** Build the full extension set. */
-export function buildExtensions(opts: { readOnly?: boolean } = {}): Extension[] {
+export function buildExtensions(opts: { readOnly?: boolean; livePreviewEnabled?: boolean } = {}): Extension[] {
+  const enableLivePreview = opts.livePreviewEnabled !== false;
   return [
     highlightSpecialChars(),
     history(),
@@ -122,7 +123,7 @@ export function buildExtensions(opts: { readOnly?: boolean } = {}): Extension[] 
     }),
     syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
     editorTheme(),
-    livePreview(),
+    ...(enableLivePreview ? [livePreview(), checkboxWidgets(), imageWidgets()] : []),
     // blockSeparators() — disabled: widget decorations before headings can
     // race with CodeMirror's measurement loop on docs with many headings.
     codeFolding({
@@ -519,6 +520,238 @@ class BlockSeparatorWidget extends WidgetType {
     el.className = "vault-block-sep";
     return el;
   }
+  ignoreEvent() {
+    return true;
+  }
+}
+
+// --- interactive checkbox widgets ------------------------------------------
+
+/**
+ * Detects `- [ ]` and `- [x]` (or `- [X]`) patterns and renders a clickable
+ * checkbox widget. Clicking toggles between checked/unchecked by dispatching
+ * a CodeMirror transaction.
+ */
+function checkboxWidgets(): Extension {
+  return ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet;
+      constructor(view: EditorView) {
+        this.decorations = buildCheckboxDecorations(view);
+      }
+      update(u: { docChanged: boolean; view: EditorView }) {
+        if (u.docChanged && !imeComposing) {
+          this.decorations = buildCheckboxDecorations(u.view);
+        }
+      }
+    },
+    { decorations: (v) => v.decorations }
+  );
+}
+
+// Regex: matches `- [ ]` or `- [x]` or `- [X]` at line start (with optional leading whitespace)
+const CHECKBOX_RE = /^(\s*- \[)([ xX])(\])/gm;
+
+function buildCheckboxDecorations(view: EditorView): DecorationSet {
+  const text = view.state.doc.toString();
+  const decos: Array<{ from: number; deco: Decoration }> = [];
+
+  for (const m of text.matchAll(CHECKBOX_RE)) {
+    const checked = m[2] !== " ";
+    // Position of the checkbox character (space or x) inside the brackets
+    const charPos = m.index! + m[1].length;
+    // Replace the entire `- [ ]` or `- [x]` portion with a widget
+    const from = m.index! + (m[1].length - 1 - 1); // start of `[`
+    const widgetFrom = m.index! + m[1].length - 1; // `[` position
+    const widgetTo = m.index! + m[1].length + 1 + 1; // after `]`
+
+    decos.push({
+      from: widgetFrom,
+      deco: Decoration.widget({
+        widget: new CheckboxWidget(checked, charPos),
+        side: -1,
+      }),
+    });
+  }
+
+  // Sort by position
+  decos.sort((a, b) => a.from - b.from);
+  return Decoration.set(
+    decos.map((d) => d.deco.range(d.from)),
+    true
+  );
+}
+
+class CheckboxWidget extends WidgetType {
+  constructor(
+    private checked: boolean,
+    private charPos: number
+  ) {
+    super();
+  }
+
+  toDOM(view: EditorView) {
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = this.checked;
+    input.className = "vault-checkbox-widget";
+    input.style.cursor = "pointer";
+    input.style.marginRight = "2px";
+    input.style.verticalAlign = "middle";
+    input.style.accentColor = "var(--primary)";
+
+    const charPos = this.charPos;
+    const checked = this.checked;
+    input.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const newChar = checked ? " " : "x";
+      view.dispatch({
+        changes: { from: charPos, to: charPos + 1, insert: newChar },
+      });
+    });
+
+    return input;
+  }
+
+  eq(other: CheckboxWidget) {
+    return this.checked === other.checked && this.charPos === other.charPos;
+  }
+
+  ignoreEvent() {
+    return false;
+  }
+}
+
+// --- inline image widgets --------------------------------------------------
+
+/**
+ * Detects `![[image.ext]]` and `![alt](url)` patterns and renders an inline
+ * <img> widget below the line. Only renders for image file extensions.
+ */
+function imageWidgets(): Extension {
+  return ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet;
+      constructor(view: EditorView) {
+        this.decorations = buildImageDecorations(view);
+      }
+      update(u: { docChanged: boolean; view: EditorView }) {
+        if (u.docChanged && !imeComposing) {
+          this.decorations = buildImageDecorations(u.view);
+        }
+      }
+    },
+    { decorations: (v) => v.decorations }
+  );
+}
+
+const IMAGE_EXTS = ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"];
+
+// Wiki embed: ![[filename.ext]]
+const WIKI_IMAGE_RE = /!\[\[([^\]\n]+)\]\]/g;
+// Standard markdown image: ![alt](url)
+const MD_IMAGE_RE = /!\[([^\]]*)\]\(([^)\n]+)\)/g;
+
+function buildImageDecorations(view: EditorView): DecorationSet {
+  const text = view.state.doc.toString();
+  const decos: Array<{ from: number; deco: Decoration }> = [];
+
+  // Wiki-style embeds: ![[image.png]]
+  for (const m of text.matchAll(WIKI_IMAGE_RE)) {
+    const target = m[1].trim();
+    const ext = target.split(".").pop()?.toLowerCase() ?? "";
+    if (!IMAGE_EXTS.includes(ext)) continue;
+    const lineEnd = view.state.doc.lineAt(m.index!).to;
+    decos.push({
+      from: lineEnd,
+      deco: Decoration.widget({
+        widget: new ImageWidget(target, true),
+        side: 1,
+        block: true,
+      }),
+    });
+  }
+
+  // Standard markdown images: ![alt](url)
+  for (const m of text.matchAll(MD_IMAGE_RE)) {
+    const url = m[2].trim();
+    // Check if it looks like an image URL
+    const ext = url.split("?")[0].split(".").pop()?.toLowerCase() ?? "";
+    const isDataUrl = url.startsWith("data:image/");
+    const isHttpUrl = url.startsWith("http://") || url.startsWith("https://");
+    if (!IMAGE_EXTS.includes(ext) && !isDataUrl && !isHttpUrl) continue;
+    const lineEnd = view.state.doc.lineAt(m.index!).to;
+    decos.push({
+      from: lineEnd,
+      deco: Decoration.widget({
+        widget: new ImageWidget(url, false),
+        side: 1,
+        block: true,
+      }),
+    });
+  }
+
+  decos.sort((a, b) => a.from - b.from);
+  return Decoration.set(
+    decos.map((d) => d.deco.range(d.from)),
+    true
+  );
+}
+
+class ImageWidget extends WidgetType {
+  constructor(
+    private src: string,
+    private isWikiEmbed: boolean
+  ) {
+    super();
+  }
+
+  toDOM() {
+    const wrapper = document.createElement("div");
+    wrapper.className = "vault-image-widget";
+    wrapper.style.padding = "8px 0";
+    wrapper.style.textAlign = "center";
+
+    const isExternal =
+      this.src.startsWith("http://") ||
+      this.src.startsWith("https://") ||
+      this.src.startsWith("data:image/");
+
+    if (isExternal) {
+      const img = document.createElement("img");
+      img.src = this.src;
+      img.alt = this.src;
+      img.style.maxWidth = "100%";
+      img.style.maxHeight = "400px";
+      img.style.borderRadius = "6px";
+      img.style.border = "1px solid var(--border)";
+      img.loading = "lazy";
+      wrapper.appendChild(img);
+    } else {
+      // Local vault image - show a placeholder since we cannot resolve the
+      // path without file system access in CodeMirror
+      const placeholder = document.createElement("div");
+      placeholder.className = "vault-image-placeholder";
+      placeholder.style.display = "inline-flex";
+      placeholder.style.alignItems = "center";
+      placeholder.style.gap = "6px";
+      placeholder.style.padding = "8px 16px";
+      placeholder.style.borderRadius = "6px";
+      placeholder.style.backgroundColor = "color-mix(in srgb, var(--muted) 50%, transparent)";
+      placeholder.style.color = "var(--muted-foreground)";
+      placeholder.style.fontSize = "13px";
+      placeholder.textContent = `Image: ${this.src}`;
+      wrapper.appendChild(placeholder);
+    }
+
+    return wrapper;
+  }
+
+  eq(other: ImageWidget) {
+    return this.src === other.src && this.isWikiEmbed === other.isWikiEmbed;
+  }
+
   ignoreEvent() {
     return true;
   }

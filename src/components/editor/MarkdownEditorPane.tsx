@@ -1,14 +1,23 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Loader2, Check, CircleAlert } from "lucide-react";
+import { Loader2, Check, CircleAlert, Pencil, BookOpen, Code2 } from "lucide-react";
 import { useVaultStore } from "@/store/vault-store";
+import { useEditorModeStore, type EditorMode } from "@/store/editor-mode-store";
 import type { FileId } from "@/lib/vault/types";
 import { CodeMirrorEditor, type CodeMirrorHandle } from "./CodeMirrorEditor";
+import { ReadingModeView } from "./ReadingModeView";
 import { PropertiesPanel } from "./PropertiesPanel";
 import { HoverPreview } from "@/components/automation/HoverPreview";
 import { FootnotePopover } from "./FootnotePopover";
 import { saveSnapshot } from "@/lib/history/snapshots";
+import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 type SaveState = "clean" | "dirty" | "saving" | "saved" | "error";
 
@@ -22,13 +31,16 @@ type SaveState = "clean" | "dirty" | "saving" | "saved" | "error";
  * This avoids the "coordsAtPos undefined" crash that occurs when the view is
  * destroyed/recreated while CodeMirror's measurement loop has a pending rAF.
  */
-export function MarkdownEditorPane({ fileId }: { fileId: FileId }) {
+export function MarkdownEditorPane({ fileId, leafId }: { fileId: FileId; leafId?: string }) {
   const ensureContent = useVaultStore((s) => s.ensureContent);
   const setContent = useVaultStore((s) => s.setContent);
   const handle = useVaultStore((s) => s.handle);
   const rootDirHandle = useVaultStore((s) => s.rootDirHandle);
   const manifest = useVaultStore((s) => s.manifest);
   const cachedText = useVaultStore((s) => s.contentCache[fileId]);
+  const openFile = useVaultStore((s) => s.openFile);
+
+  const mode = useEditorModeStore((s) => leafId ? s.getMode(leafId) : "live-preview");
 
   const [saveState, setSaveState] = useState<SaveState>("clean");
   const [loading, setLoading] = useState(true);
@@ -143,19 +155,39 @@ export function MarkdownEditorPane({ fileId }: { fileId: FileId }) {
     <div className="h-full flex flex-col">
       <PropertiesPanel fileId={fileId} />
       <SaveIndicator state={saveState} />
-      <div className="flex-1 min-h-0 relative" data-editor-host>
-        <CodeMirrorEditor
-          ref={editorRef}
-          initialText={cachedText ?? ""}
-          onChange={scheduleSave}
-          onSave={() => {
-            if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-            void doSave(latestTextRef.current);
-          }}
-        />
-        <HoverPreview editorSelector="[data-editor-host] .cm-editor" />
-        <FootnotePopover editorSelector="[data-editor-host] .cm-editor" />
-      </div>
+      {leafId && <ViewModeToggle leafId={leafId} />}
+      {mode === "reading" ? (
+        <div className="flex-1 min-h-0">
+          <ReadingModeView text={cachedText ?? ""} fileId={fileId} />
+        </div>
+      ) : (
+        <div className="flex-1 min-h-0 relative" data-editor-host>
+          <CodeMirrorEditor
+            ref={editorRef}
+            initialText={cachedText ?? ""}
+            onChange={scheduleSave}
+            livePreviewEnabled={mode === "live-preview"}
+            onSave={() => {
+              if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+              void doSave(latestTextRef.current);
+            }}
+            onWikiLinkClick={(target) => {
+              if (!manifest) return;
+              const nodes = Object.values(manifest.nodes);
+              const match = nodes.find(
+                (n) =>
+                  n.kind === "file" &&
+                  (n.name === target ||
+                    n.name === `${target}.md` ||
+                    n.name.replace(/\.md$/, "") === target)
+              );
+              if (match) openFile(match.id);
+            }}
+          />
+          <HoverPreview editorSelector="[data-editor-host] .cm-editor" />
+          <FootnotePopover editorSelector="[data-editor-host] .cm-editor" />
+        </div>
+      )}
     </div>
   );
 }
@@ -163,9 +195,9 @@ export function MarkdownEditorPane({ fileId }: { fileId: FileId }) {
 function SaveIndicator({ state }: { state: SaveState }) {
   const label =
     state === "dirty"
-      ? "Editing…"
+      ? "Editing..."
       : state === "saving"
-      ? "Saving…"
+      ? "Saving..."
       : state === "saved"
       ? "Saved"
       : state === "error"
@@ -178,6 +210,43 @@ function SaveIndicator({ state }: { state: SaveState }) {
       {state === "saved" && <Check className="w-3 h-3 text-emerald-500" />}
       {state === "error" && <CircleAlert className="w-3 h-3 text-destructive" />}
       {label}
+    </div>
+  );
+}
+
+/** View mode toggle button positioned in the top-right of the editor pane. */
+function ViewModeToggle({ leafId }: { leafId: string }) {
+  const mode = useEditorModeStore((s) => s.getMode(leafId));
+  const cycleMode = useEditorModeStore((s) => s.cycleMode);
+
+  const modeLabel: Record<EditorMode, string> = {
+    "live-preview": "Live Preview",
+    source: "Source Mode",
+    reading: "Reading Mode",
+  };
+
+  const ModeIcon = mode === "reading" ? BookOpen : mode === "source" ? Code2 : Pencil;
+
+  return (
+    <div className="absolute top-1 right-14 z-10">
+      <TooltipProvider delayDuration={300}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+              onClick={() => cycleMode(leafId)}
+              aria-label={`Current: ${modeLabel[mode]}. Click to cycle.`}
+            >
+              <ModeIcon className="w-3.5 h-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            {modeLabel[mode]} (Ctrl+E to toggle)
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
     </div>
   );
 }

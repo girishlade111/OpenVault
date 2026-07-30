@@ -157,7 +157,7 @@ function LeafContent({ leafId, activeTabId }: { leafId: string; activeTabId: str
         </h1>
       </div>
       {node.isMarkdown ? (
-        <MarkdownEditorPane fileId={node.id} />
+        <MarkdownEditorPane fileId={node.id} leafId={leafId} />
       ) : (
         <div className="flex-1 grid place-items-center p-8 text-sm text-muted-foreground text-center">
           {node.isImage

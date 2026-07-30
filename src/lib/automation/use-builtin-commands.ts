@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { useVaultStore } from "@/store/vault-store";
+import { useEditorModeStore } from "@/store/editor-mode-store";
 import {
   registerCommand,
   unregisterCommand,
@@ -66,6 +67,30 @@ export function useBuiltinCommands(onTogglePalette: () => void) {
       run: () => useVaultStore.getState().splitActiveLeaf("vertical"),
     });
 
+    registerCommand({
+      id: "editor.toggle-mode",
+      name: "Toggle edit/reading mode",
+      category: "Editor",
+      hotkey: "Mod+E",
+      run: () => {
+        const ws = useVaultStore.getState().workspace;
+        if (!ws?.activeLeafId) return;
+        useEditorModeStore.getState().toggleMode(ws.activeLeafId);
+      },
+    });
+
+    registerCommand({
+      id: "editor.cycle-mode",
+      name: "Cycle editor mode",
+      category: "Editor",
+      hotkey: "Mod+Shift+E",
+      run: () => {
+        const ws = useVaultStore.getState().workspace;
+        if (!ws?.activeLeafId) return;
+        useEditorModeStore.getState().cycleMode(ws.activeLeafId);
+      },
+    });
+
     registeredRef.current = true;
 
     return () => {
@@ -75,6 +100,8 @@ export function useBuiltinCommands(onTogglePalette: () => void) {
       unregisterCommand("app.open-graph");
       unregisterCommand("app.split-right");
       unregisterCommand("app.split-down");
+      unregisterCommand("editor.toggle-mode");
+      unregisterCommand("editor.cycle-mode");
     };
   }, []);
 }

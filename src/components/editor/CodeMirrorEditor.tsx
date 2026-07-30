@@ -19,8 +19,12 @@ interface CodeMirrorEditorProps {
   onChange: (text: string) => void;
   /** Read-only mode. */
   readOnly?: boolean;
+  /** Whether live-preview decorations are enabled (default true). */
+  livePreviewEnabled?: boolean;
   /** Fired when the user presses Cmd/Ctrl+S. */
   onSave?: () => void;
+  /** Fired when user Ctrl/Cmd+Clicks a wiki-link. */
+  onWikiLinkClick?: (target: string) => void;
 }
 
 /**
@@ -37,11 +41,12 @@ interface CodeMirrorEditorProps {
  * never run inside CodeMirror's update cycle.
  */
 export const CodeMirrorEditor = forwardRef<CodeMirrorHandle, CodeMirrorEditorProps>(
-  function CodeMirrorEditor({ initialText, onChange, readOnly, onSave }, ref) {
+  function CodeMirrorEditor({ initialText, onChange, readOnly, livePreviewEnabled, onSave, onWikiLinkClick }, ref) {
     const hostRef = useRef<HTMLDivElement | null>(null);
     const viewRef = useRef<EditorView | null>(null);
     const onChangeRef = useRef(onChange);
     const onSaveRef = useRef(onSave);
+    const onWikiLinkClickRef = useRef(onWikiLinkClick);
 
     useImperativeHandle(ref, () => ({
       setDoc: (text: string) => {
@@ -60,6 +65,7 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorHandle, CodeMirrorEditorPro
     useEffect(() => {
       onChangeRef.current = onChange;
       onSaveRef.current = onSave;
+      onWikiLinkClickRef.current = onWikiLinkClick;
     });
 
     useEffect(() => {
@@ -67,7 +73,7 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorHandle, CodeMirrorEditorPro
 
       const extensions: Extension[] = [
         EditorView.lineWrapping,
-        ...buildExtensions({ readOnly }),
+        ...buildExtensions({ readOnly, livePreviewEnabled }),
         EditorView.updateListener.of((u) => {
           if (u.docChanged) {
             const text = u.state.doc.toString();
@@ -87,6 +93,20 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorHandle, CodeMirrorEditorPro
             if ((event.metaKey || event.ctrlKey) && event.key === "s") {
               event.preventDefault();
               onSaveRef.current?.();
+              return true;
+            }
+            return false;
+          },
+          click: (event) => {
+            // Ctrl/Cmd+Click on wiki-links: navigate to the linked note
+            if (!(event.metaKey || event.ctrlKey)) return false;
+            const target = event.target as HTMLElement;
+            const wikiEl = target.closest(".tok-wikilink");
+            if (!wikiEl) return false;
+            const linkTarget = wikiEl.getAttribute("data-target");
+            if (linkTarget && onWikiLinkClickRef.current) {
+              event.preventDefault();
+              onWikiLinkClickRef.current(linkTarget);
               return true;
             }
             return false;
