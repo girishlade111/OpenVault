@@ -2,7 +2,7 @@
   "id": "FEAT-004",
   "type": "feat",
   "description": "Complete command system, hotkey coverage, Quick Switcher (Ctrl+O), and daily notes workflow matching Obsidian's full command palette and automation",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "1. Add a dedicated Quick Switcher dialog (Ctrl+O) separate from the command palette (Ctrl+P). The Quick Switcher is file-only: fuzzy search across all note names, shows recent files first, then ranked matches. Use the cmdk (Command) component with a simpler single-group layout. Create src/components/automation/QuickSwitcher.tsx.",
     "2. Register all missing Obsidian commands in src/lib/automation/use-builtin-commands.ts: 'editor.toggle-bold' (Mod+B), 'editor.toggle-italic' (Mod+I), 'editor.toggle-strikethrough' (Mod+Shift+X - wraps selection in ~~), 'editor.toggle-code' (Mod+` - wraps in backticks), 'editor.toggle-highlight' (Mod+Shift+H - wraps in ==), 'editor.insert-link' (Mod+K - wraps selection in []()), 'editor.insert-wikilink' (Mod+Shift+K - wraps in [[]]).",
@@ -28,5 +28,5 @@
     "Run: export PATH=\"/root/.local/share/mise/installs/bun/latest/bin:$PATH\" && cd /projects/sandbox/OpenVault && bun run build"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "All 8 steps implemented successfully. CodeMirror imperative handle extended with getSelection, wrapSelection, foldAtCursor, unfoldAtCursor. Used a simple module-level editor-ref-store (not Zustand) to connect commands to the active editor. Navigation history uses truncate-on-navigate pattern (back/forward without pushing new entries). Daily notes command creates the Daily folder if missing. Build uses dynamic import for @codemirror/language fold functions to avoid circular deps."
 }
