@@ -95,6 +95,8 @@ export const useIndexStore = create<IndexState>((set, get) => ({
     const cur = get().index;
     if (!cur) return;
     // Debounce: collapse rapid edits into one re-index.
+    // Use aggressive debounce (600ms) for large files to reduce thrashing.
+    const debounceMs = content.length > 10240 ? 600 : 300;
     const existing = reindexTimers.get(fileId);
     if (existing) clearTimeout(existing);
     const timer = setTimeout(() => {
@@ -126,7 +128,7 @@ export const useIndexStore = create<IndexState>((set, get) => ({
           : null,
         lastUpdate: Date.now(),
       });
-    }, 300);
+    }, debounceMs);
     reindexTimers.set(fileId, timer);
   },
 

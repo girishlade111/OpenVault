@@ -308,7 +308,7 @@ function AppearanceSection() {
             <Label className="text-sm">Theme</Label>
             <p className="text-xs text-muted-foreground">Light, dark, or system</p>
           </div>
-          <Select value={mode} onValueChange={(val: "light" | "dark" | "system") => setMode(val)}>
+          <Select value={mode} onValueChange={(val) => setMode(val as "light" | "dark" | "system")}>
             <SelectTrigger className="w-28 h-8">
               <SelectValue />
             </SelectTrigger>

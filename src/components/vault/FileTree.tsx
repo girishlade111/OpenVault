@@ -5,6 +5,7 @@ import {
   useRef,
   useEffect,
   useCallback,
+  memo,
   type DragEvent,
   type KeyboardEvent,
 } from "react";
@@ -144,7 +145,7 @@ interface RowProps {
   onRequestDelete: (id: FileId) => void;
 }
 
-function TreeRow({
+const TreeRow = memo(function TreeRow({
   node,
   depth,
   filter,
@@ -479,7 +480,7 @@ function TreeRow({
       )}
     </>
   );
-}
+});
 
 // --- Sort Dropdown ---------------------------------------------------------
 

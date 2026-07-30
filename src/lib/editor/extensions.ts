@@ -330,8 +330,8 @@ export function setImeComposing(v: boolean) {
 
 /**
  * Live-preview decorations: mark inline markdown tokens with styled classes.
- * Re-derived on every doc change, but SUPPRESSED during IME composition so
- * the cursor is never disrupted mid-keystroke.
+ * Re-derived on doc change OR viewport change, but only for visible lines.
+ * SUPPRESSED during IME composition so the cursor is never disrupted mid-keystroke.
  */
 function livePreview(): Extension {
   return ViewPlugin.fromClass(
@@ -340,8 +340,8 @@ function livePreview(): Extension {
       constructor(view: EditorView) {
         this.decorations = buildLivePreviewDecorations(view);
       }
-      update(u: { docChanged: boolean; view: EditorView }) {
-        if (u.docChanged && !imeComposing) {
+      update(u: { docChanged: boolean; viewportChanged: boolean; view: EditorView }) {
+        if ((u.docChanged || u.viewportChanged) && !imeComposing) {
           this.decorations = buildLivePreviewDecorations(u.view);
         }
       }
@@ -364,8 +364,19 @@ function buildLivePreviewDecorations(view: EditorView): DecorationSet {
   const tree = syntaxTree(state);
   const decos: DecoEntry[] = [];
 
+  // Only compute decorations for visible ranges (viewport-aware).
+  const visibleRanges = view.visibleRanges;
+  const visibleFrom = visibleRanges.length > 0 ? visibleRanges[0].from : 0;
+  const visibleTo = visibleRanges.length > 0 ? visibleRanges[visibleRanges.length - 1].to : text.length;
+
+  // Helper: check if a range overlaps the visible viewport
+  const isVisible = (from: number, to: number) =>
+    from <= visibleTo && to >= visibleFrom;
+
   // --- Standard markdown syntax (via Lezer tree) ---
   tree.iterate({
+    from: visibleFrom,
+    to: visibleTo,
     enter(node) {
       const name = node.name;
       if (name === "ATXHeading1" || name === "ATXHeading2" || name === "ATXHeading3") {
@@ -401,18 +412,11 @@ function buildLivePreviewDecorations(view: EditorView): DecorationSet {
 
   // --- Custom Obsidian syntax (regex-based, applied to raw text) ---
 
-  // WikiLinks + embeds.
-  for (const link of extractWikiLinks(text)) {
-    decos.push({
-      from: link.from,
-      to: link.to,
-      deco: Decoration.mark({ class: link.embed ? "tok-embed" : "tok-wikilink", attributes: { "data-target": link.noteName } }),
-    });
-  }
-
-  // Tags — skip if inside a code span.
+  // Build code ranges for exclusion (only for visible area).
   const codeRanges: Array<[number, number]> = [];
   tree.iterate({
+    from: visibleFrom,
+    to: visibleTo,
     enter(node) {
       if (node.name === "FencedCode" || node.name === "InlineCode") {
         codeRanges.push([node.from, node.to]);
@@ -422,7 +426,19 @@ function buildLivePreviewDecorations(view: EditorView): DecorationSet {
   const inCode = (from: number, to: number) =>
     codeRanges.some(([cf, ct]) => from >= cf && to <= ct);
 
+  // WikiLinks + embeds.
+  for (const link of extractWikiLinks(text)) {
+    if (!isVisible(link.from, link.to)) continue;
+    decos.push({
+      from: link.from,
+      to: link.to,
+      deco: Decoration.mark({ class: link.embed ? "tok-embed" : "tok-wikilink", attributes: { "data-target": link.noteName } }),
+    });
+  }
+
+  // Tags -- skip if inside a code span.
   for (const tag of extractTags(text)) {
+    if (!isVisible(tag.from, tag.to)) continue;
     if (inCode(tag.from, tag.to)) continue;
     decos.push({
       from: tag.from,
@@ -434,6 +450,7 @@ function buildLivePreviewDecorations(view: EditorView): DecorationSet {
   // Footnote references.
   const { refs: fnRefs } = extractFootnotes(text);
   for (const ref of fnRefs) {
+    if (!isVisible(ref.from, ref.to)) continue;
     if (inCode(ref.from, ref.to)) continue;
     decos.push({
       from: ref.from,
@@ -447,6 +464,7 @@ function buildLivePreviewDecorations(view: EditorView): DecorationSet {
 
   // Math expressions (inline + block).
   for (const math of extractMath(text)) {
+    if (!isVisible(math.from, math.to)) continue;
     decos.push({
       from: math.from,
       to: math.to,
@@ -456,11 +474,12 @@ function buildLivePreviewDecorations(view: EditorView): DecorationSet {
     });
   }
 
-  // Callout header — mark just the `[!type]` badge (single-line, safe).
+  // Callout header -- mark just the `[!type]` badge (single-line, safe).
   const calloutHeaderRe = />\s*\[!([a-zA-Z-]+)\]/g;
   for (const m of text.matchAll(calloutHeaderRe)) {
     const from = m.index! + m[0].indexOf("[");
     const to = m.index! + m[0].length;
+    if (!isVisible(from, to)) continue;
     const type = m[1].toLowerCase();
     decos.push({
       from,

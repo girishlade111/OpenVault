@@ -14,6 +14,7 @@ import { FootnotePopover } from "./FootnotePopover";
 import { saveSnapshot } from "@/lib/history/snapshots";
 import { setActiveEditorRef } from "@/store/editor-ref-store";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
   TooltipContent,
@@ -157,9 +158,20 @@ export function MarkdownEditorPane({ fileId, leafId }: { fileId: FileId; leafId?
 
   if (loading && cachedText === undefined) {
     return (
-      <div className="flex-1 flex items-center justify-center text-muted-foreground">
-        <Loader2 className="w-4 h-4 animate-spin mr-2" />
-        Loading…
+      <div className="flex-1 flex flex-col px-10 py-6 gap-4 animate-in fade-in duration-200">
+        <Skeleton className="h-8 w-2/3" />
+        <div className="space-y-3 mt-4">
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-5/6" />
+          <Skeleton className="h-4 w-4/5" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-3/4" />
+        </div>
+        <div className="space-y-3 mt-4">
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-2/3" />
+          <Skeleton className="h-4 w-5/6" />
+        </div>
       </div>
     );
   }

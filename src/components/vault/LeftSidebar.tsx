@@ -6,6 +6,7 @@ import { useVaultStore } from "@/store/vault-store";
 import { useSettingsStore } from "@/lib/settings/settings-store";
 import { FileTree } from "./FileTree";
 import { SearchPanel } from "@/components/search/SearchPanel";
+import { ErrorBoundary } from "@/components/common/ErrorBoundary";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -141,7 +142,9 @@ export function LeftSidebar() {
       </div>
       <div className="flex-1 min-h-0 flex flex-col">
         {searchMode ? (
-          <SearchPanel onClose={() => setSearchMode(false)} />
+          <ErrorBoundary label="Search">
+            <SearchPanel onClose={() => setSearchMode(false)} />
+          </ErrorBoundary>
         ) : (
           <>
             <StarredNotes />

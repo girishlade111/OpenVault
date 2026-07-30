@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import {
   X,
   Pin,
@@ -22,9 +23,10 @@ import {
 import { MarkdownEditorPane } from "@/components/editor/MarkdownEditorPane";
 import { GraphView } from "@/components/graph/GraphView";
 import { CanvasView } from "@/components/canvas/CanvasView";
+import { ErrorBoundary } from "@/components/common/ErrorBoundary";
 
 /** A single tab chip inside a leaf's tab strip. */
-function TabChip({ leafId, tab }: { leafId: string; tab: EditorTab }) {
+const TabChip = memo(function TabChip({ leafId, tab }: { leafId: string; tab: EditorTab }) {
   const manifest = useVaultStore((s) => s.manifest);
   // Subscribe to this leaf's view so the chip re-renders when activeTabId
   // changes. The leaf node reference is stable across unrelated state changes
@@ -177,7 +179,7 @@ function TabChip({ leafId, tab }: { leafId: string; tab: EditorTab }) {
       </Button>
     </div>
   );
-}
+});
 
 function LeafEmptyState({ leafId }: { leafId: string }) {
   const splitLeaf = useVaultStore((s) => s.splitLeaf);
@@ -280,7 +282,9 @@ export function EditorLeaf({ leaf }: { leaf: LeafNode }) {
       >
         <GraphLeafHeader leafId={leaf.id} />
         <div className="flex-1 min-h-0">
-          <GraphView />
+          <ErrorBoundary label="Graph View">
+            <GraphView />
+          </ErrorBoundary>
         </div>
       </div>
     );
@@ -300,7 +304,9 @@ export function EditorLeaf({ leaf }: { leaf: LeafNode }) {
       >
         <GraphLeafHeader leafId={leaf.id} label="Canvas" />
         <div className="flex-1 min-h-0">
-          <CanvasView />
+          <ErrorBoundary label="Canvas">
+            <CanvasView />
+          </ErrorBoundary>
         </div>
       </div>
     );
@@ -399,7 +405,9 @@ export function EditorLeaf({ leaf }: { leaf: LeafNode }) {
         </div>
       </div>
       <div className="flex-1 min-h-0">
-        <LeafContent leafId={leaf.id} activeTabId={activeTabId} />
+        <ErrorBoundary label="Editor">
+          <LeafContent leafId={leaf.id} activeTabId={activeTabId} />
+        </ErrorBoundary>
       </div>
     </div>
   );

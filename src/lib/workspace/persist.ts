@@ -44,13 +44,43 @@ export function serialize(state: WorkspaceState, ui: WorkspaceSnapshot["ui"]): s
 
 export function deserialize(text: string): WorkspaceSnapshot | null {
   try {
-    const parsed = JSON.parse(text) as WorkspaceSnapshot;
-    if (!parsed || parsed.version !== 1 || !parsed.workspace) return null;
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== "object") return null;
+
+    // Version migration path: support future format changes.
+    const version = parsed.version;
+    if (typeof version !== "number" || version < 1) return null;
+
+    // For now only version 1 is supported. When future versions are added,
+    // migration logic can be inserted here (e.g., if version === 2, migrate).
+    if (version !== 1) {
+      console.warn(`[workspace] Unknown workspace.json version: ${version}. Falling back to default.`);
+      return null;
+    }
+
+    if (!parsed.workspace) return null;
     if (!isValidWorkspace(parsed.workspace.root)) return null;
-    return parsed;
+
+    // Ensure activeLeafId is consistent: must reference an existing leaf.
+    const leaves = listLeavesFromNode(parsed.workspace.root);
+    if (parsed.workspace.activeLeafId && !leaves.includes(parsed.workspace.activeLeafId)) {
+      parsed.workspace.activeLeafId = leaves[0] ?? null;
+    }
+
+    return parsed as WorkspaceSnapshot;
   } catch {
+    // JSON parse failure or any structural issue -- fall back to default.
     return null;
   }
+}
+
+/** Collect all leaf IDs from a workspace node tree (for validation). */
+function listLeavesFromNode(node: WorkspaceNode): string[] {
+  if (node.type === "leaf") return [node.id];
+  if (node.type === "branch") {
+    return node.children.flatMap(listLeavesFromNode);
+  }
+  return [];
 }
 
 /** Structural validation: every branch has ≥2 children, ids are strings. */
@@ -65,6 +95,8 @@ function isValidWorkspace(node: WorkspaceNode): boolean {
 
 function isValidView(view: ViewInstance): boolean {
   if (view.kind === "empty") return true;
+  if (view.kind === "graph") return true;
+  if (view.kind === "canvas") return true;
   if (view.kind === "editor") {
     return Array.isArray(view.tabs) && (view.activeTabId === null || typeof view.activeTabId === "string");
   }
