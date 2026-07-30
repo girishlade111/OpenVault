@@ -1,0 +1,7 @@
+{
+  "task_id": "task-obsidian-full-parity",
+  "task_description": "Comprehensive verification and enhancement of the entire OpenVault app to match Obsidian's features, working logic, system structure, and performance. Covers: editor view modes (live preview/source/reading), file tree CRUD and drag-drop, workspace tab management, settings and hotkey customization, command system and automation, and code health/performance.",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003", "FEAT-004", "FEAT-005"],
+  "blocked_reason": null
+}

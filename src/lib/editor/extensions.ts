@@ -90,15 +90,22 @@ function extractMath(text: string): { from: number; to: number; display: boolean
 }
 
 /** Build the full extension set. */
-export function buildExtensions(opts: { readOnly?: boolean; livePreviewEnabled?: boolean } = {}): Extension[] {
+export function buildExtensions(opts: { readOnly?: boolean; livePreviewEnabled?: boolean; fontSize?: number; showLineNumbers?: boolean; tabSize?: number; lineWidth?: string } = {}): Extension[] {
   const enableLivePreview = opts.livePreviewEnabled !== false;
+  const fontSize = opts.fontSize ?? 14;
+  const showLines = opts.showLineNumbers !== false;
+  const tabSz = opts.tabSize ?? 2;
+  const lw = opts.lineWidth ?? "medium";
+
+  const maxWidth = lw === "narrow" ? "600px" : lw === "wide" ? "900px" : "760px";
+
   return [
     highlightSpecialChars(),
     history(),
     drawSelection(),
     dropCursor(),
     EditorState.allowMultipleSelections.of(true),
-    indentUnit.of("  "),
+    indentUnit.of(" ".repeat(tabSz)),
     rectangularSelection(),
     crosshairCursor(),
     highlightActiveLine(),
@@ -113,8 +120,7 @@ export function buildExtensions(opts: { readOnly?: boolean; livePreviewEnabled?:
       indentWithTab,
     ]),
     closeBrackets(),
-    lineNumbers(),
-    highlightActiveLineGutter(),
+    ...(showLines ? [lineNumbers(), highlightActiveLineGutter()] : []),
     // Markdown language with code-block sub-languages.
     markdown({
       base: markdownLanguage,
@@ -122,17 +128,17 @@ export function buildExtensions(opts: { readOnly?: boolean; livePreviewEnabled?:
       addKeymap: true,
     }),
     syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
-    editorTheme(),
+    editorTheme(fontSize, maxWidth),
     ...(enableLivePreview ? [livePreview(), checkboxWidgets(), imageWidgets()] : []),
     // blockSeparators() — disabled: widget decorations before headings can
     // race with CodeMirror's measurement loop on docs with many headings.
     codeFolding({
-      placeholderText: "…",
+      placeholderText: "\u2026",
     }),
     foldGutter({
       markerDOM: (open) => {
         const el = document.createElement("span");
-        el.textContent = open ? "▾" : "▸";
+        el.textContent = open ? "\u25BE" : "\u25B8";
         el.className = "vault-fold-marker" + (open ? " vault-fold-open" : "");
         el.style.cursor = "pointer";
         el.style.opacity = "0.5";
@@ -167,19 +173,19 @@ export function buildExtensions(opts: { readOnly?: boolean; livePreviewEnabled?:
  * --muted, etc.) so the editor automatically matches light/dark mode and the
  * shadcn palette.
  */
-function editorTheme(): Extension {
+function editorTheme(fontSize: number = 14, maxWidth: string = "760px"): Extension {
   return EditorView.theme({
     "&": {
       color: "var(--foreground)",
       backgroundColor: "var(--background)",
       height: "100%",
-      fontSize: "14px",
+      fontSize: `${fontSize}px`,
     },
     ".cm-content": {
       caretColor: "var(--primary)",
       fontFamily: "var(--font-geist-mono), ui-monospace, monospace",
       padding: "16px 24px",
-      maxWidth: "760px",
+      maxWidth,
       margin: "0 auto",
     },
     ".cm-gutters": {

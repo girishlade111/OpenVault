@@ -45,6 +45,8 @@ import {
   findLeaf,
   listLeaves,
   openFileInLeaf,
+  reorderTabsInLeaf,
+  moveTabBetweenLeaves,
   setActiveTabInLeaf,
   setLeafCursor,
   setLeafScroll,
@@ -117,6 +119,8 @@ interface VaultState {
   closeTab: (leafId: NodeId, fileId: FileId) => void;
   setActiveTab: (leafId: NodeId, fileId: FileId) => void;
   togglePinTab: (leafId: NodeId, fileId: FileId) => void;
+  reorderTabs: (leafId: NodeId, fromIndex: number, toIndex: number) => void;
+  moveTab: (fromLeafId: NodeId, toLeafId: NodeId, fileId: FileId, insertIndex?: number) => void;
   setLeafScroll: (leafId: NodeId, scroll: { top: number; left: number }) => void;
   setLeafCursor: (leafId: NodeId, cursor: { line: number; ch: number } | null) => void;
 
@@ -458,6 +462,14 @@ export const useVaultStore = create<VaultState>((set, get) => ({
 
   togglePinTab: (leafId, fileId) => {
     applyWorkspace(set, get, (w) => togglePinTabInLeaf(w, leafId, fileId));
+  },
+
+  reorderTabs: (leafId, fromIndex, toIndex) => {
+    applyWorkspace(set, get, (w) => reorderTabsInLeaf(w, leafId, fromIndex, toIndex));
+  },
+
+  moveTab: (fromLeafId, toLeafId, fileId, insertIndex) => {
+    applyWorkspace(set, get, (w) => moveTabBetweenLeaves(w, fromLeafId, toLeafId, fileId, insertIndex));
   },
 
   setLeafScroll: (leafId, scroll) => {

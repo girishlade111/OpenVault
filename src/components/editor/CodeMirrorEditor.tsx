@@ -21,6 +21,14 @@ interface CodeMirrorEditorProps {
   readOnly?: boolean;
   /** Whether live-preview decorations are enabled (default true). */
   livePreviewEnabled?: boolean;
+  /** Font size in pixels. */
+  fontSize?: number;
+  /** Whether to show line numbers. */
+  showLineNumbers?: boolean;
+  /** Tab/indent size. */
+  tabSize?: number;
+  /** Line width setting: narrow/medium/wide. */
+  lineWidth?: string;
   /** Fired when the user presses Cmd/Ctrl+S. */
   onSave?: () => void;
   /** Fired when user Ctrl/Cmd+Clicks a wiki-link. */
@@ -41,7 +49,7 @@ interface CodeMirrorEditorProps {
  * never run inside CodeMirror's update cycle.
  */
 export const CodeMirrorEditor = forwardRef<CodeMirrorHandle, CodeMirrorEditorProps>(
-  function CodeMirrorEditor({ initialText, onChange, readOnly, livePreviewEnabled, onSave, onWikiLinkClick }, ref) {
+  function CodeMirrorEditor({ initialText, onChange, readOnly, livePreviewEnabled, fontSize, showLineNumbers, tabSize, lineWidth, onSave, onWikiLinkClick }, ref) {
     const hostRef = useRef<HTMLDivElement | null>(null);
     const viewRef = useRef<EditorView | null>(null);
     const onChangeRef = useRef(onChange);
@@ -73,7 +81,7 @@ export const CodeMirrorEditor = forwardRef<CodeMirrorHandle, CodeMirrorEditorPro
 
       const extensions: Extension[] = [
         EditorView.lineWrapping,
-        ...buildExtensions({ readOnly, livePreviewEnabled }),
+        ...buildExtensions({ readOnly, livePreviewEnabled, fontSize, showLineNumbers, tabSize, lineWidth }),
         EditorView.updateListener.of((u) => {
           if (u.docChanged) {
             const text = u.state.doc.toString();

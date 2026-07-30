@@ -3,10 +3,18 @@
 import { useEffect, useRef } from "react";
 import { useVaultStore } from "@/store/vault-store";
 import { useEditorModeStore } from "@/store/editor-mode-store";
+import { useSettingsStore } from "@/lib/settings/settings-store";
+import { findLeaf } from "@/lib/workspace/tree";
+import type { WorkspaceNode, LeafNode } from "@/lib/workspace/types";
 import {
   registerCommand,
   unregisterCommand,
 } from "@/lib/automation/hotkeys";
+
+/** Helper to find a leaf for command execution (avoids circular deps). */
+function findLeafForCommand(root: WorkspaceNode, id: string): LeafNode | null {
+  return findLeaf(root, id);
+}
 
 /**
  * Registers built-in commands on mount and cleans up on unmount.
@@ -111,6 +119,26 @@ export function useBuiltinCommands(onTogglePalette: () => void) {
       },
     });
 
+    registerCommand({
+      id: "app.star-note",
+      name: "Star/unstar current note",
+      category: "File",
+      hotkey: "Mod+Shift+S",
+      run: () => {
+        const ws = useVaultStore.getState().workspace;
+        if (!ws?.activeLeafId) return;
+        const root = ws.root;
+        const leaf = findLeafForCommand(root, ws.activeLeafId);
+        if (!leaf || leaf.view.kind !== "editor" || !leaf.view.activeTabId) return;
+        useSettingsStore.getState().toggleStarredNote(leaf.view.activeTabId);
+      },
+      available: () => {
+        const ws = useVaultStore.getState().workspace;
+        if (!ws?.activeLeafId) return false;
+        return true;
+      },
+    });
+
     registeredRef.current = true;
 
     return () => {
@@ -123,6 +151,7 @@ export function useBuiltinCommands(onTogglePalette: () => void) {
       unregisterCommand("editor.toggle-mode");
       unregisterCommand("editor.cycle-mode");
       unregisterCommand("app.new-note");
+      unregisterCommand("app.star-note");
     };
   }, []);
 }

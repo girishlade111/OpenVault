@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Loader2, Check, CircleAlert, Pencil, BookOpen, Code2 } from "lucide-react";
 import { useVaultStore } from "@/store/vault-store";
 import { useEditorModeStore, type EditorMode } from "@/store/editor-mode-store";
+import { useSettingsStore } from "@/lib/settings/settings-store";
 import type { FileId } from "@/lib/vault/types";
 import { CodeMirrorEditor, type CodeMirrorHandle } from "./CodeMirrorEditor";
 import { ReadingModeView } from "./ReadingModeView";
@@ -40,6 +41,7 @@ export function MarkdownEditorPane({ fileId, leafId }: { fileId: FileId; leafId?
   const cachedText = useVaultStore((s) => s.contentCache[fileId]);
   const openFile = useVaultStore((s) => s.openFile);
 
+  const editorSettings = useSettingsStore((s) => s.editor);
   const mode = useEditorModeStore((s) => leafId ? s.getMode(leafId) : "live-preview");
 
   const [saveState, setSaveState] = useState<SaveState>("clean");
@@ -167,6 +169,10 @@ export function MarkdownEditorPane({ fileId, leafId }: { fileId: FileId; leafId?
             initialText={cachedText ?? ""}
             onChange={scheduleSave}
             livePreviewEnabled={mode === "live-preview"}
+            fontSize={editorSettings.fontSize}
+            showLineNumbers={editorSettings.showLineNumbers}
+            tabSize={editorSettings.indentSize}
+            lineWidth={editorSettings.lineWidth}
             onSave={() => {
               if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
               void doSave(latestTextRef.current);
