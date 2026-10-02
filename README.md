@@ -72,3 +72,7 @@ bun run release:desktop
 - `src/components/graph/`: Interactive knowledge graph visualization.
 - `prisma/`: Contains your database schema and migrations.
 - `main.js`: The primary entry point for the Electron process.
+
+---
+
+Built by Girish Lade — https://ladestack.in
